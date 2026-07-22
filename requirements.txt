@@ -10,3 +10,5 @@ xgboost
 lightgbm
 joblib
 pyyaml
+fastapi
+uvicorn[standard]

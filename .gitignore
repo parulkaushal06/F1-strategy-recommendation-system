@@ -4,3 +4,10 @@ __pycache__/
 *.pyc
 .env
 .vscode/
+cache_fastf1/
+*.log
+
+# Next.js app
+node_modules/
+web/.next/
+web/out/

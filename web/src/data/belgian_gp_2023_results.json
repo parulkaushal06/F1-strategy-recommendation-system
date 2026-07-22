@@ -1,0 +1,92 @@
+[
+  {
+    "position": 1,
+    "code": "VER",
+    "name": "Max Verstappen",
+    "team": "Red Bull",
+    "time": "1:22:30.450",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 2,
+    "code": "PER",
+    "name": "Sergio P\u00e9rez",
+    "team": "Red Bull",
+    "time": "+22.305",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 3,
+    "code": "LEC",
+    "name": "Charles Leclerc",
+    "team": "Ferrari",
+    "time": "+32.259",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 4,
+    "code": "HAM",
+    "name": "Lewis Hamilton",
+    "team": "Mercedes",
+    "time": "+49.671",
+    "pitStops": 3,
+    "fastestLap": true
+  },
+  {
+    "position": 5,
+    "code": "ALO",
+    "name": "Fernando Alonso",
+    "team": "Aston Martin",
+    "time": "+56.184",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 6,
+    "code": "RUS",
+    "name": "George Russell",
+    "team": "Mercedes",
+    "time": "+1:03.101",
+    "pitStops": 1,
+    "fastestLap": false
+  },
+  {
+    "position": 7,
+    "code": "NOR",
+    "name": "Lando Norris",
+    "team": "McLaren",
+    "time": "+1:13.719",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 8,
+    "code": "OCO",
+    "name": "Esteban Ocon",
+    "team": "Alpine F1 Team",
+    "time": "+1:14.719",
+    "pitStops": 2,
+    "fastestLap": false
+  },
+  {
+    "position": 9,
+    "code": "STR",
+    "name": "Lance Stroll",
+    "team": "Aston Martin",
+    "time": "+1:19.340",
+    "pitStops": 1,
+    "fastestLap": false
+  },
+  {
+    "position": 10,
+    "code": "TSU",
+    "name": "Yuki Tsunoda",
+    "team": "AlphaTauri",
+    "time": "+1:20.221",
+    "pitStops": 2,
+    "fastestLap": false
+  }
+]

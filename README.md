@@ -38,19 +38,56 @@ Recommendations:
   leader dominate)
 - **Interactive Streamlit dashboard** — pick a season, race, and driver, then scrub
   lap by lap through a real historical race and watch every number update live
+- **RACECRAFT web dashboard** (`web/`) — a Next.js + Tailwind rebuild of the same live
+  intelligence, with real circuit maps for 31 tracks (see below)
 - Cross-source data validation between two independent F1 data providers
   (98.9%–100% agreement on pit stops and driver codes)
 - Explicit, documented separation between *measured* signals and *inferred* proxies
+
+## 🗺️ RACECRAFT Web Dashboard
+
+A second, richer frontend alongside Streamlit: Season Hub, Race Hub, Strategy Dashboard,
+Driver Comparison, and Results, all wired to the same trained model and `StrategyEngine`
+through a small FastAPI layer (Streamlit talks to them directly in-process; this frontend
+can't load a `.pkl` file itself, so it calls the API instead).
+
+Circuit maps are **real, not illustrative**: 31 of the 35 circuits in this project's
+dataset have actual track outlines (traced by
+[julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg), CC BY 4.0 — see
+`assets/circuits-svg/ATTRIBUTION.md`), with corners and sector-boundary markers
+registered onto that outline using real FastF1 telemetry (see
+`tools/circuit-alignment/`). Alignment quality is honestly reported per circuit
+(residual ~20–100px depending on how geometrically distinct the track's corners are) —
+4 circuits (Valencia, Korea, India, Malaysia) have no real map because FastF1 doesn't
+reliably expose session data for races before ~2018.
+
+**Run it:**
+```bash
+# Terminal 1 — the API (real model + StrategyEngine)
+uvicorn src.api.main:app --reload --port 8000
+
+# Terminal 2 — the frontend
+cd web
+npm install
+npm run dev
+```
+Opens at `http://localhost:3000`. The API must be running first — the frontend calls
+`http://localhost:8000` directly (configurable via `web/.env.local`).
 
 ## 🛠️ Technologies Used
 
 - **Python** — pandas, numpy
 - **scikit-learn** — `RandomForestClassifier` for win probability
 - **Streamlit** — interactive dashboard
-- **Plotly** — live charts inside the dashboard
+- **Plotly** — live charts inside the Streamlit dashboard
+- **FastAPI** + **uvicorn** — API layer serving the model/`StrategyEngine` to the web frontend
+- **Next.js** + **Tailwind CSS** — RACECRAFT web dashboard (`web/`)
+- **FastF1** — real corner and sector-boundary telemetry for circuit map alignment
 - **joblib** — model persistence
 - **Data sources** — [Ergast/Kaggle F1 historical database](http://ergast.com/mrd/) (1950–2024),
-  [OpenF1 API](https://openf1.org/) (2023 telemetry: laps, pits, stints, weather, real DRS)
+  [OpenF1 API](https://openf1.org/) (2023 telemetry: laps, pits, stints, weather, real DRS),
+  [FastF1](https://github.com/theOehrly/Fast-F1) (real corner/sector telemetry, circuit maps
+  from [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg), CC BY 4.0)
 
 ## 📂 Project Structure
 
@@ -62,11 +99,15 @@ F1 Sport/
 │   └── processed/       # final model-ready datasets
 ├── notebooks/            # step-by-step analysis (data cleaning, EDA, modeling)
 ├── src/
-│   ├── data/             # scripts to fetch and merge raw data
+│   ├── data/             # scripts to fetch/merge raw data + export JSON for web/
 │   ├── features/         # feature engineering + model training scripts
-│   └── strategy/          # strategy recommendation engine
+│   ├── strategy/          # strategy recommendation engine
+│   └── api/               # FastAPI wrapper around the model + StrategyEngine
 ├── models/                # saved trained model files
 ├── dashboard/             # Streamlit dashboard app
+├── web/                   # RACECRAFT Next.js + Tailwind dashboard
+├── assets/circuits-svg/   # real circuit outline SVGs (CC BY 4.0, see ATTRIBUTION.md)
+├── tools/circuit-alignment/  # fetches real FastF1 corner/sector data, aligns onto the SVGs
 ├── docs/                  # full project documentation (see index below)
 └── reports/               # figures and write-ups
 ```
@@ -84,12 +125,14 @@ pip install -r requirements.txt
 
 ## ▶️ How to Run
 
-**Run the dashboard:**
+**Run the Streamlit dashboard:**
 ```bash
 streamlit run dashboard/app.py
 ```
 Opens at `http://localhost:8501`. Pick a season → race → driver, then move the lap
 slider to see win probability and recommendations update live.
+
+**Run the RACECRAFT web dashboard** — see the section above.
 
 **Use the strategy engine directly in Python:**
 ```python
@@ -153,6 +196,13 @@ Full write-ups: [`docs/09_model_results.md`](docs/09_model_results.md) and
   - Real tire compound and weather data beyond the current 1,357-row OpenF1 subset
 - **Validate `drs_zone_proxy`** against the real DRS data already collected for 3 races
 - **Extend OpenF1 telemetry coverage** beyond 2023 and beyond 3 validated races
+- **Extend real circuit maps to the remaining 4 circuits** (Valencia, Korea, India,
+  Malaysia) — blocked on FastF1 not reliably exposing session data pre-2018, so this
+  needs a different data source, not just re-running the existing pipeline
+- **Tighten circuit-alignment residuals** for the weaker fits (Spielberg, Mugello, Baku
+  currently ~100px) — the curvature-peak corner detector struggles on tracks where real
+  corners are tightly clustered; would need either denser sampling or a different
+  corner-matching approach
 - Be clear this project is a rigorously validated data-science exercise on historical
   data, not a live pit-wall tool — closing that gap would need proprietary telemetry,
   live weather radar, and physics-based tire models no public dataset provides
