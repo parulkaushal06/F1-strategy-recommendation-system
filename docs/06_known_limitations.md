@@ -26,11 +26,13 @@ measured, reported accuracy rather than an unverified assumption.
 
 ## 3. OpenF1 telemetry coverage is sparse relative to the full dataset
 
-Only ~0.4% of rows (1,357 out of 320,274) have real OpenF1 enrichment, because OpenF1
-only covers the 2023 season, and only sessions that successfully matched during the
-race-ID bridging step. The win-probability model is trained on the full Ergast dataset
-(which doesn't depend on OpenF1), while the strategy engine's real-telemetry validation
-is necessarily scoped to this smaller, richer subset.
+~7.3% of rows (23,431 out of 320,274) have real OpenF1 enrichment (updated after
+fixing a `session_key` merge bug that had originally limited this to ~0.4% —
+see `04_data_cleaning.md`), because OpenF1 only covers the 2023 season, and only
+sessions that successfully matched during the race-ID bridging step. The
+win-probability model is trained on the full Ergast dataset (which doesn't depend on
+OpenF1), while the strategy engine's real-telemetry validation is necessarily scoped
+to this smaller, richer subset.
 
 ## 4. Lap-level timing data is unreliable before 2011
 
@@ -49,3 +51,15 @@ difference, not a data error (see `04_data_cleaning.md`, section 4).
 
 This is correct, not a bug — the race was cancelled due to flooding and does not appear
 in the 2023 Ergast results at all.
+
+## 7. Homepage hero section is hardcoded to the Belgian Grand Prix
+
+The main homepage (`web/src/app/page.tsx`) displays a "featured race" hero section
+with title, description, quick facts, and track map — but these are hardcoded to the
+Belgian Grand Prix (Spa-Francorchamps) rather than dynamically reflecting the actual
+"next" race in the season data. Only the small "ROUND X OF Y" line above the title is
+genuinely dynamic; it coincidentally matches the hardcoded content because round 12
+(Belgium) happens to be marked as "next" in the current season data file. This was
+identified during a walkthrough of the frontend, not caught earlier since it visually
+looks correct by coincidence. Not yet fixed — noted here so it's a deliberate, tracked
+decision rather than an unnoticed bug.

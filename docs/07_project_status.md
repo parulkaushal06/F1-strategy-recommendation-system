@@ -45,15 +45,59 @@
 - [x] Built dashboard (Streamlit, `dashboard/app.py`) showing live win
       probability + full recommendation checklist, lap by lap — see
       `11_dashboard.md`
+- [x] Built full-stack web app (Next.js frontend + FastAPI backend,
+      `web/` + `src/api/main.py`) as a richer alternative to the Streamlit
+      dashboard, with live race hub, strategy engine view, driver comparison,
+      and results pages
+- [x] Calibration check and fix: discovered the Random Forest was
+      systematically overconfident (predicted ~82% for the top probability
+      bucket, actual observed win rate only ~47%); fixed with
+      `CalibratedClassifierCV`, cutting Brier score by 46% (0.0424 → 0.0227)
+      with no ROC-AUC cost — see `09_model_results.md`
+- [x] Fair model comparison: Random Forest vs Logistic Regression vs XGBoost,
+      all calibrated identically. Random Forest retained as production model
+      (best ROC-AUC and Brier score) — see `09_model_results.md`
+- [x] Walk-forward validation across 3 independent test years (2022/2023/2024)
+      confirmed consistent ROC-AUC (0.977–0.992); investigated and explained
+      the 2023 outlier (Red Bull won 95% of that season, a real, verified
+      historical fact, not a data issue) — see `09_model_results.md`
+- [x] Removed duplicate `gap_to_leader_ms`/`gap_to_leader_s` feature (same
+      value, two units) — confirmed no performance cost, cleaner feature
+      importance ranking
+- [x] Investigated a driver-relative pace feature to isolate tire degradation
+      from car/team performance — found fuel burn-off and track evolution
+      dominate over tire wear in this dataset, a genuine (if unexpected)
+      finding, documented in `08_eda_findings.md`
+- [x] Added SHAP explanations for individual predictions; discovered and
+      correctly handled a mismatch between SHAP's raw-model output and the
+      calibrated model's trustworthy probability — see `09_model_results.md`
+- [x] Found and fixed a real performance regression: `CalibratedClassifierCV`'s
+      default `cv=5` was retraining 5 internal model copies, making every
+      prediction 5x slower. Fixed with `FrozenEstimator` + a 3-way time-based
+      split (train/calibrate/test), recovering a 5.5x speedup with negligible
+      quality cost — see `09_model_results.md`
+- [x] Updated `src/api/main.py` and `src/strategy/recommend_action.py` to use
+      the final calibrated model and 42-feature list
+- [x] Found and fixed a second performance issue: the live field-standings
+      panel was calling the model ~36-40 times per page load (2 calls ×
+      18-20 drivers, in a loop). Refactored into `recommend_batch()` — 2
+      model calls total for the whole field — cutting dashboard load time
+      from ~5-10s toward near-instant
+- [x] Fixed a real React bug in the frontend (`CircuitTrack.tsx`): a ref was
+      read directly during render instead of inside `useEffect`, which could
+      cause the live car-position dot to not update reliably
 
 ## In progress / next steps
 
-- [ ] Resume exploratory data analysis (EDA) — class balance and distributions already
-      done in `03_eda.ipynb`; re-run correlation ranking on the corrected, larger
-      OpenF1-enriched dataset (previous run was on the broken 1,357-row subset)
 - [ ] Validate `drs_zone_proxy` against real DRS data from the 3-race telemetry sample
-- [ ] Model evaluation and validation on more seasons / cross-validation, beyond the
-      single held-out test year currently used
+- [ ] Fix the homepage hero section to dynamically reflect the actual next/selected
+      race instead of hardcoded Belgian GP content — see `06_known_limitations.md` §7
+- [ ] Wire SHAP per-prediction explanations into the dashboard UI (currently only
+      exists in the modeling notebook)
+- [ ] Clean up `.gitignore`, remove `venv/`/`data/` from version control before
+      pushing to GitHub (see `12_industrial_roadmap.md`)
+- [ ] Deploy: frontend to Vercel, backend to Render/Railway — get a live demo link
+- [ ] Set up GitHub Actions CI (lint + type-check + tests on every push)
 
 ## Design decisions worth highlighting in an interview / write-up
 
@@ -64,5 +108,15 @@
   between Ergast and OpenF1), not just for cleaning
 - Deliberate scoping of expensive telemetry fetches (3 races, not full season) with
   documented reasoning
-- Time-aware train/test splitting planned to avoid leakage (a common mistake in
-  race-outcome prediction projects)
+- Time-aware train/test splitting to avoid leakage (a common mistake in
+  race-outcome prediction projects), extended to walk-forward validation across
+  multiple independent years rather than trusting a single split
+- Diagnosed and fixed real model overconfidence via calibration curves, rather than
+  trusting a strong ROC-AUC alone — a probability-driven dashboard needs trustworthy
+  probabilities, not just good ranking ability
+- Investigated a promising feature engineering idea (driver-relative pace) that
+  turned out NOT to improve the model, and documented the honest negative result
+  rather than forcing it in
+- Found and fixed two separate real performance regressions in production code
+  (calibration inference cost, redundant per-driver model calls) through direct
+  measurement, not assumption

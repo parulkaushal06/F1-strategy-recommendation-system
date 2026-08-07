@@ -55,7 +55,7 @@ import pandas as pd
 import numpy as np
 import os
 
-MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "win_probability_model.pkl")
+MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "win_probability_model_calibrated.pkl")
 FEATURES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "feature_columns.pkl")
 
 # Empirically derived from real pit-stop timing in cleaned_dataset.csv:
@@ -172,11 +172,12 @@ class StrategyEngine:
         score = min(100, tire_component * 0.7 + pace_component + trend_component)
         return round(float(score), 1)
 
-    def recommend(self, row):
+    def _build_recommendation(self, row, current_win_prob, sim_win_prob):
         """
-        row: a pandas Series or single-row DataFrame representing the CURRENT
-             race state for one driver (must contain all feature_cols).
-        Returns a dict with win probability, pit recommendation, and DRS flag.
+        Shared decision logic, given ALREADY-COMPUTED probabilities. Used by both
+        recommend() (single row, 2 model calls) and recommend_batch() (many rows,
+        2 model calls TOTAL) — this separation is what makes batching possible
+        without duplicating the pit/DRS/ERS decision logic in two places.
 
         DESIGN NOTE: an earlier version tried to decide "pit or not" purely from
         the model's simulated win-probability delta. Testing showed this was
@@ -188,26 +189,12 @@ class StrategyEngine:
         pit urgency score (see `_pit_urgency_score`), with the model's win
         probability numbers shown as supporting context, not the sole driver.
         """
-        if isinstance(row, pd.DataFrame):
-            row = row.iloc[0]
-
-        current_df = pd.DataFrame([row])
-        current_win_prob = self._predict_proba(current_df)
-
-        # --- Pit simulation (context, not the decision itself) ---
-        sim_row = self.simulate_pit_now(row)
-        sim_df = pd.DataFrame([sim_row])
-        sim_win_prob = self._predict_proba(sim_df)
         pit_gain = sim_win_prob - current_win_prob
 
-        # --- Primary pit decision: data-driven tire-age-ratio window + urgency score ---
         tire_age_ratio = self._tire_age_ratio(row)
         laps_on_tire = row.get("laps_since_last_pit", 0)
         urgency = self._pit_urgency_score(row, tire_age_ratio)
 
-        # Flag (don't silently mis-answer) the known edge case: if this row IS
-        # the lap a pit stop actually happened on, laps_since_last_pit/tire_age_ratio
-        # are post-pit values (~0), not a meaningful "should I pit" input.
         already_pitting_this_lap = bool(row.get("pit_stop_this_lap", 0) == 1)
 
         if already_pitting_this_lap:
@@ -219,15 +206,8 @@ class StrategyEngine:
         else:
             pit_recommendation = "STAY OUT (tires still fresh)"
 
-        # --- DRS recommendation (using the existing engineered proxy feature) ---
         drs_available = bool(row.get("drs_zone_proxy", 0) == 1)
 
-        # --- ERS recommendation (proxy only -- see docs/06_known_limitations.md) ---
-        # No public data source (including OpenF1) exposes real ERS deployment mode,
-        # so this is inferred, not measured: recommend "Overtake Mode" only when
-        # BOTH a real overtaking opportunity exists (within DRS range) AND the
-        # driver is meaningfully off the pace (would benefit from the extra power),
-        # since ERS's main strategic use is closing/completing a pass, not general cruising.
         pace_delta = row.get("pace_delta_to_fastest_ms", 0) or 0
         ers_overtake_recommended = bool(drs_available and pace_delta > 300)
         if ers_overtake_recommended:
@@ -245,10 +225,30 @@ class StrategyEngine:
             "model_context_if_pit_now": {
                 "simulated_win_probability": round(float(sim_win_prob) * 100, 2),
                 "probability_change": round(float(pit_gain) * 100, 2),
-                "note": "reflects the real time cost of pitting; not the sole basis for the recommendation above — see design note in recommend()"
+                "note": "reflects the real time cost of pitting; not the sole basis for the recommendation above — see design note in _build_recommendation()"
             },
             "drs_recommendation": "DRS AVAILABLE" if drs_available else "NO DRS",
         }
+
+    def recommend(self, row):
+        """
+        row: a pandas Series or single-row DataFrame representing the CURRENT
+             race state for one driver (must contain all feature_cols).
+        Returns a dict with win probability, pit recommendation, and DRS flag.
+        For evaluating an entire field at once, use recommend_batch() instead —
+        it produces identical results using far fewer model calls.
+        """
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+
+        current_df = pd.DataFrame([row])
+        current_win_prob = self._predict_proba(current_df)
+
+        sim_row = self.simulate_pit_now(row)
+        sim_df = pd.DataFrame([sim_row])
+        sim_win_prob = self._predict_proba(sim_df)
+
+        return self._build_recommendation(row, current_win_prob, sim_win_prob)
 
     @staticmethod
     def compute_gap_to_behind_ms(same_lap_field_df, driver_id, position_col="position",
@@ -274,24 +274,12 @@ class StrategyEngine:
             return None  # last car on track, nobody behind
         return float(field.loc[idx + 1, gap_col] - field.loc[idx, gap_col])
 
-    def recommend_full(self, row, same_lap_field_df=None):
+    def _add_race_craft(self, result, row, same_lap_field_df):
         """
-        Full strategy recommendation: everything from recommend() PLUS a
-        race-craft call (attack / defend / manage pace) using signals that
-        were already engineered in the dataset but previously unused for
-        recommendations: gap_to_ahead_ms, gap_to_behind_ms (computed here),
-        pace_delta_to_fastest_ms, and position_change.
-
-        same_lap_field_df: optional full-field snapshot for this raceId+lap
-            (see compute_gap_to_behind_ms). If not provided, defend/attack
-            logic falls back to gap_to_ahead-only reasoning and gap_to_behind
-            is reported as unknown.
+        Shared race-craft logic (attack/defend/manage pace), extracted so both
+        recommend_full() (single driver) and recommend_batch() (whole field, one
+        pass) can reuse it without duplicating the decision rules.
         """
-        if isinstance(row, pd.DataFrame):
-            row = row.iloc[0]
-
-        result = self.recommend(row)
-
         gap_ahead = row.get("gap_to_ahead_ms", None)
         # Data artifact: the leader (position 1) always has gap_to_ahead_ms == 0
         # in the dataset (nothing to diff against), which is NOT a real "car
@@ -330,6 +318,57 @@ class StrategyEngine:
         result["gap_to_behind_ms"] = gap_behind
         result["race_craft_recommendation"] = race_craft
         return result
+
+    def recommend_full(self, row, same_lap_field_df=None):
+        """
+        Full strategy recommendation: everything from recommend() PLUS a
+        race-craft call (attack / defend / manage pace). For a whole field of
+        drivers at once, use recommend_batch() instead — same result, far fewer
+        model calls.
+
+        same_lap_field_df: optional full-field snapshot for this raceId+lap
+            (see compute_gap_to_behind_ms). If not provided, defend/attack
+            logic falls back to gap_to_ahead-only reasoning and gap_to_behind
+            is reported as unknown.
+        """
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        result = self.recommend(row)
+        return self._add_race_craft(result, row, same_lap_field_df)
+
+    def recommend_batch(self, field_df, same_lap_field_df=None):
+        """
+        Same output as calling recommend_full() once per row in field_df, but runs
+        exactly 2 model predictions TOTAL (one batch for current state, one batch
+        for simulated pit-now) instead of 2 PER DRIVER.
+
+        Why this matters: each individual predict_proba() call carries a fixed
+        overhead (~50ms, measured — see docs/09_model_results.md) mostly from
+        pandas/sklearn call overhead, not actual tree computation. Calling it once
+        per row for an 18-20 driver field meant 36-40 calls (~2 seconds) where a
+        single batched call handles all rows in ~1 call's worth of overhead.
+
+        same_lap_field_df: full-field snapshot for gap-to-behind calculations.
+            Defaults to field_df itself if not given separately.
+        """
+        if same_lap_field_df is None:
+            same_lap_field_df = field_df
+
+        current_X = field_df[self.feature_cols].fillna(-999)
+        current_probs = self.model.predict_proba(current_X)[:, 1]
+
+        # Building each simulated row is cheap (pure pandas/dict work, no model
+        # call) — only the actual model inference needs batching, not this part.
+        sim_rows = [self.simulate_pit_now(row) for _, row in field_df.iterrows()]
+        sim_X = pd.DataFrame(sim_rows)[self.feature_cols].fillna(-999)
+        sim_probs = self.model.predict_proba(sim_X)[:, 1]
+
+        results = []
+        for i, (_, row) in enumerate(field_df.iterrows()):
+            result = self._build_recommendation(row, current_probs[i], sim_probs[i])
+            result = self._add_race_craft(result, row, same_lap_field_df)
+            results.append(result)
+        return results
 
 
 if __name__ == "__main__":

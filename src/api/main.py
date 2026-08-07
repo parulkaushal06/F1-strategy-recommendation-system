@@ -23,7 +23,8 @@ from src.strategy.recommend_action import StrategyEngine
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 DATA_PATH = os.path.join(ROOT, "data", "processed", "cleaned_dataset.csv")
-MODEL_PATH = os.path.join(ROOT, "models", "win_probability_model.pkl")
+MODEL_PATH = os.path.join(ROOT, "models", "win_probability_model_calibrated.pkl")
+RAW_MODEL_PATH = os.path.join(ROOT, "models", "win_probability_model_raw.pkl")
 FEATURES_PATH = os.path.join(ROOT, "models", "feature_columns.pkl")
 RACES_CSV = os.path.join(ROOT, "data", "raw", "ergast", "races.csv")
 DRIVERS_CSV = os.path.join(ROOT, "data", "raw", "ergast", "drivers.csv")
@@ -38,7 +39,8 @@ app.add_middleware(
 
 # --- load once at startup, same pattern as the Streamlit dashboard's caching ---
 df = pd.read_csv(DATA_PATH, low_memory=False)
-model = joblib.load(MODEL_PATH)
+model = joblib.load(MODEL_PATH)  # calibrated — used for every probability prediction
+raw_model = joblib.load(RAW_MODEL_PATH)  # underlying tree model — feature_importances_ only
 feature_cols = joblib.load(FEATURES_PATH)
 
 real_pit_durations = df.loc[df["pit_duration_ms"] > 0, "pit_duration_ms"]
@@ -164,22 +166,28 @@ def strategy(raceId: int, driverId: int, lap: int):
     history = [{"lap": int(r.lap), "winProb": round(float(r.winProb), 2)} for r in history_df.itertuples()]
 
     # --- full field snapshot for this lap ---
+    # Batched: 2 model calls total for the whole field, instead of 2 PER DRIVER
+    # (previously a per-row loop calling recommend_full() — see docs/09_model_results.md
+    # for the ~5x speed impact this had on page load time).
+    field_sorted = field_df.sort_values("position").reset_index(drop=True)
+    batch_results = engine.recommend_batch(field_sorted, same_lap_field_df=field_df)
+
     field = []
-    for _, row in field_df.sort_values("position").iterrows():
-        r = engine.recommend_full(row, same_lap_field_df=field_df)
+    for row_dict, r in zip(field_sorted.to_dict("records"), batch_results):
         field.append({
-            "position": int(row["position"]),
-            "driverId": int(row["driverId"]),
-            "code": row["code"],
-            "team": row["constructor_name"],
+            "position": int(row_dict["position"]),
+            "driverId": int(row_dict["driverId"]),
+            "code": row_dict["code"],
+            "team": row_dict["constructor_name"],
             "winProbability": r["current_win_probability"],
             "pitRecommendation": r["pit_recommendation"].split(" (")[0],
             "drsAvailable": "AVAILABLE" in r["drs_recommendation"],
             "raceCraftRecommendation": r["race_craft_recommendation"].split(" (")[0],
         })
 
-    # --- real feature importance, top 10 ---
-    importances = pd.Series(model.feature_importances_, index=feature_cols).sort_values(ascending=False).head(10)
+    # --- real feature importance, top 10 (from the raw model — CalibratedClassifierCV
+    # wraps the base estimator in CV folds and doesn't expose feature_importances_ directly) ---
+    importances = pd.Series(raw_model.feature_importances_, index=feature_cols).sort_values(ascending=False).head(10)
     feature_importance = [{"feature": k, "importance": round(float(v), 4)} for k, v in importances.items()]
 
     return {

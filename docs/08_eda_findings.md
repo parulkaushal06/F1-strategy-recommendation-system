@@ -61,6 +61,39 @@ Most races are decided with a 1-stop strategy — 0 and 2 stops are both less co
 associated with worse average finishing position, matching real-world F1 strategy
 knowledge.
 
+## Follow-up investigation: driver-relative pace feature (tire degradation vs fuel/track evolution)
+
+**Motivation**: the original `pace_delta_to_fastest_ms` (comparing each lap to the
+fastest lap set by ANYONE in the field that lap) showed near-zero correlation with
+winning and with tire age — suspiciously weak. Hypothesis: this feature conflates two
+different things — car/team performance gaps and genuine tire degradation — and a
+dominant team (see model results: Red Bull won 95% of 2023) could be drowning out the
+tire signal entirely.
+
+**Fix attempted**: engineered `pace_vs_own_baseline_ms` — each lap's time compared to
+that SAME driver's own median pace during their first 2-3 laps on fresh tires, within
+the same stint. This isolates a driver's pace trend from their own baseline, removing
+car-to-car comparison entirely.
+
+**Result — a genuine, unexpected finding**: once isolated, lap times get **faster**,
+not slower, as a stint progresses (e.g. -524ms by lap 4, -1181ms by lap 24 relative to
+each driver's own fresh-tire baseline). This means **fuel burn-off (lighter car =
+faster car) and track evolution (more rubber laid down = more grip) outweigh tire
+degradation** as factors in lap-time trends, at least in aggregate across this
+dataset's full range of circuits and eras.
+
+**Conclusion**: the original weak correlation wasn't primarily a feature-engineering
+artifact (car-performance noise drowning out tire signal) — it reflects a genuine
+property of the underlying sport: tire wear's effect on raw lap time is smaller than
+fuel-burn and track-evolution effects at this level of analysis. This is a more
+complete and honest answer than the original hypothesis, arrived at by testing the
+hypothesis directly rather than assuming it was correct.
+
+**Note for future work**: tire degradation likely still matters for STRATEGY (when to
+pit) even if it's not the dominant factor in raw lap time — a lap-time based feature
+may simply be the wrong lens; a feature based on RELATIVE position loss to cars on
+fresher tires might isolate the effect better than lap time alone.
+
 ## Next step
 
 These findings directly inform feature selection for the win-probability model:
