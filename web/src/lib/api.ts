@@ -89,9 +89,19 @@ async function getJSON<T>(path: string, params: Record<string, string | number>)
   return res.json();
 }
 
+export interface RaceInfo {
+  raceId: number;
+  year: number;
+  round: number;
+  name: string;
+  circuitName: string;
+  totalLaps: number;
+}
+
 export const api = {
   seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json()),
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
+  raceInfo: (raceId: number): Promise<RaceInfo> => getJSON("/api/race-info", { raceId }),
   drivers: (raceId: number): Promise<DriverSummary[]> => getJSON("/api/drivers", { raceId }),
   laps: (raceId: number, driverId: number): Promise<LapBounds> => getJSON("/api/laps", { raceId, driverId }),
   strategy: (raceId: number, driverId: number, lap: number): Promise<StrategyResponse> =>

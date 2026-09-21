@@ -7,6 +7,7 @@ import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
+import seasonCalendar from "@/data/season_2023.json";
 import { api, type RaceSummary } from "@/lib/api";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
@@ -41,8 +42,9 @@ function RaceHubInner() {
       if (!initializedFromQuery && queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
         setRaceId(Number(queryRaceId));
       } else {
-        const belgian = list.find((r) => r.name.includes("Belgian"));
-        setRaceId((belgian ?? list[0])?.raceId ?? null);
+        const nextRaceId = seasonCalendar.find((r) => r.status === "next")?.raceId;
+        const fallback = list.find((r) => r.raceId === nextRaceId);
+        setRaceId((fallback ?? list[0])?.raceId ?? null);
       }
       setInitializedFromQuery(true);
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -64,16 +66,16 @@ function RaceHubInner() {
       <Nav active="/race-hub" />
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
-        <div className="card p-4 flex flex-wrap items-center gap-4 mb-6">
+        <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-6">
           <div className="flex items-center gap-2">
-            <span className="eyebrow">SEASON</span>
-            <select className="btn !py-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">SEASON</span>
+            <select className="btn !py-2 max-w-full" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {seasons.map((y) => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="eyebrow">RACE</span>
-            <select className="btn !py-2" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">RACE</span>
+            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
               {races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
             </select>
           </div>
@@ -85,7 +87,7 @@ function RaceHubInner() {
             <div className="eyebrow mb-3">
               {info && `ROUND ${info.round} · ${info.year}`}
             </div>
-            <h1 className="text-[44px] md:text-[58px] leading-[0.95]">{info?.name ?? "—"}</h1>
+            <h1 className="text-[32px] sm:text-[44px] md:text-[58px] leading-[0.95]">{info?.name ?? "—"}</h1>
             <div className="mt-3 text-[14px] text-[color:var(--ink-secondary)]">{info?.circuitName}</div>
           </div>
         </div>
@@ -142,7 +144,7 @@ function RaceHubInner() {
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-16">
         <Link
           href={raceId ? `/strategy?raceId=${raceId}` : "/strategy"}
-          className="card p-6 flex items-center justify-between hover:border-[color:var(--accent)]"
+          className="card p-6 flex flex-wrap items-center justify-between gap-4 hover:border-[color:var(--accent)]"
         >
           <div>
             <div className="eyebrow mb-2">STRATEGY ENGINE</div>

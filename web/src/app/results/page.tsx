@@ -19,7 +19,7 @@ export default function Results() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="eyebrow mb-3">RACE HISTORY</div>
-        <h1 className="text-[40px] md:text-[52px] leading-[0.95] mb-6">Belgian Grand Prix · 2023</h1>
+        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-6">Belgian Grand Prix · 2023</h1>
         <div className="flex flex-wrap gap-2">
           {["2018", "2019", "2021", "2022"].map((year) => (
             <span key={year} className="btn !py-2 !px-3 opacity-50">

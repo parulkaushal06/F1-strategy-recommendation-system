@@ -75,18 +75,18 @@ export default function DriverComparison() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="eyebrow mb-3">HEAD TO HEAD</div>
-        <h1 className="text-[40px] md:text-[52px] leading-[0.95] mb-8">Driver Comparison</h1>
+        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-8">Driver Comparison</h1>
 
-        <div className="card p-4 flex flex-wrap items-center gap-4 mb-8">
+        <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-8">
           <div className="flex items-center gap-2">
-            <span className="eyebrow">RACE</span>
-            <select className="btn !py-2" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">RACE</span>
+            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
               {races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
             </select>
           </div>
-          <div className="flex-1 min-w-[220px] flex items-center gap-4">
+          <div className="flex-1 min-w-0 sm:min-w-[220px] flex items-center gap-4">
             <span className="eyebrow shrink-0">LAP</span>
-            <input type="range" min={1} max={maxLap} value={lap} onChange={(e) => setLap(Number(e.target.value))} />
+            <input type="range" min={1} max={maxLap} value={lap} onChange={(e) => setLap(Number(e.target.value))} className="min-w-0 flex-1" />
             <span className="mono text-[14px] shrink-0 w-[64px] text-right">{lap}/{maxLap}</span>
           </div>
         </div>
@@ -154,6 +154,7 @@ export default function DriverComparison() {
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-16">
         <div className="card p-6">
           <div className="eyebrow mb-5">STAT DELTA · LAP {lap}</div>
+          <div className="overflow-x-auto">
           <table className="w-full text-[13px]">
             <thead>
               <tr className="eyebrow text-left hairline-bottom">
@@ -188,6 +189,7 @@ export default function DriverComparison() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       </section>
 

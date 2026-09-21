@@ -1,9 +1,15 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import CircuitTrack from "@/components/CircuitTrack";
 import season from "@/data/season_2023.json";
 import standings from "@/data/standings_2023_r11.json";
-import { SPA_PATH_D, SPA_QUICK_FACTS } from "@/data/spaCircuit";
+import { getCircuitData } from "@/data/circuitRegistry";
+import { SPA_QUICK_FACTS } from "@/data/spaCircuit";
+import { api, type RaceInfo } from "@/lib/api";
 
 const TEAM_COLORS: Record<string, string> = {
   "Red Bull": "#2246A8",
@@ -12,6 +18,17 @@ const TEAM_COLORS: Record<string, string> = {
   "Aston Martin": "#1F7A5C",
   McLaren: "#E8792E",
 };
+
+// "Bahrain Grand Prix" -> ["Bahrain", "Grand Prix"], so the hero heading can
+// keep its two-line display style for whichever race is actually next,
+// instead of the name being hardcoded to Belgium/Spa.
+function splitRaceName(name: string): [string, string | null] {
+  const suffix = " Grand Prix";
+  if (name.endsWith(suffix)) {
+    return [name.slice(0, -suffix.length), "Grand Prix"];
+  }
+  return [name, null];
+}
 
 function statusPill(status: string) {
   if (status === "done") {
@@ -39,7 +56,24 @@ function statusPill(status: string) {
 }
 
 export default function SeasonHub() {
-  const next = season.find((r) => r.status === "next");
+  const next = useMemo(() => season.find((r) => r.status === "next") ?? season[0], []);
+  const [info, setInfo] = useState<RaceInfo | null>(null);
+  const [infoError, setInfoError] = useState(false);
+
+  useEffect(() => {
+    if (!next) return;
+    api.raceInfo(next.raceId).then(setInfo).catch(() => setInfoError(true));
+  }, [next]);
+
+  const circuit = useMemo(() => (info ? getCircuitData(info.circuitName) : null), [info]);
+  const [headingMain, headingSuffix] = splitRaceName(next?.name ?? "Season");
+
+  // Rich quick facts (lap record, DRS zone count) only exist as real, sourced
+  // data for Spa right now (see docs/06_known_limitations.md). For any other
+  // "next" race, show only what's genuinely available rather than fabricate
+  // numbers for it — total laps from the API, corner count and map precision
+  // from the circuit registry (both real, per-circuit data).
+  const isSpa = info?.circuitName === "Circuit de Spa-Francorchamps";
 
   return (
     <>
@@ -51,40 +85,67 @@ export default function SeasonHub() {
             2023 SEASON · ROUND {next?.round} OF {season.length} ·{" "}
             {next && new Date(next.date).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }).toUpperCase()}
           </div>
-          <h1 className="text-[56px] md:text-[76px] leading-[0.92]">
-            Belgian
-            <br />
-            Grand&nbsp;Prix
+          <h1 className="text-[40px] sm:text-[56px] md:text-[76px] leading-[0.92]">
+            {headingMain}
+            {headingSuffix && (
+              <>
+                <br />
+                {headingSuffix}
+              </>
+            )}
           </h1>
           <p className="mt-5 text-[15px] text-[color:var(--ink-secondary)] max-w-[46ch]">
-            Circuit de Spa-Francorchamps, Stavelot, Belgium — the fastest lap on the calendar,
-            decided by two DRS zones and a weather system that rarely agrees with itself.
+            {next?.location}, {next?.country}
+            {isSpa &&
+              " — the fastest lap on the calendar, decided by two DRS zones and a weather system that rarely agrees with itself."}
           </p>
-          <div className="mt-7 flex flex-wrap gap-8 mono text-[13px] text-[color:var(--ink-secondary)]">
-            <div>
-              <div className="text-[11px] mb-1">CIRCUIT LENGTH</div>
-              <div className="text-[color:var(--ink-primary)] text-[16px]">{SPA_QUICK_FACTS.circuitLengthKm} km</div>
-            </div>
-            <div>
-              <div className="text-[11px] mb-1">RACE LAPS</div>
-              <div className="text-[color:var(--ink-primary)] text-[16px]">{SPA_QUICK_FACTS.laps}</div>
-            </div>
-            <div>
-              <div className="text-[11px] mb-1">LAP RECORD</div>
-              <div className="text-[color:var(--ink-primary)] text-[16px]">
-                {SPA_QUICK_FACTS.lapRecord} · {SPA_QUICK_FACTS.lapRecordDriver}
-              </div>
-            </div>
-            <div>
-              <div className="text-[11px] mb-1">DRS ZONES</div>
-              <div className="text-[color:var(--ink-primary)] text-[16px]">{SPA_QUICK_FACTS.drsZones.length}</div>
-            </div>
+          <div className="mt-7 flex flex-wrap gap-x-8 gap-y-4 mono text-[13px] text-[color:var(--ink-secondary)]">
+            {isSpa ? (
+              <>
+                <div>
+                  <div className="text-[11px] mb-1">CIRCUIT LENGTH</div>
+                  <div className="text-[color:var(--ink-primary)] text-[16px]">{SPA_QUICK_FACTS.circuitLengthKm} km</div>
+                </div>
+                <div>
+                  <div className="text-[11px] mb-1">RACE LAPS</div>
+                  <div className="text-[color:var(--ink-primary)] text-[16px]">{info?.totalLaps ?? SPA_QUICK_FACTS.laps}</div>
+                </div>
+                <div>
+                  <div className="text-[11px] mb-1">LAP RECORD</div>
+                  <div className="text-[color:var(--ink-primary)] text-[16px]">
+                    {SPA_QUICK_FACTS.lapRecord} · {SPA_QUICK_FACTS.lapRecordDriver}
+                  </div>
+                </div>
+                <div>
+                  <div className="text-[11px] mb-1">DRS ZONES</div>
+                  <div className="text-[color:var(--ink-primary)] text-[16px]">{SPA_QUICK_FACTS.drsZones.length}</div>
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <div className="text-[11px] mb-1">RACE LAPS</div>
+                  <div className="text-[color:var(--ink-primary)] text-[16px]">{info?.totalLaps ?? "—"}</div>
+                </div>
+                {circuit && (
+                  <div>
+                    <div className="text-[11px] mb-1">CORNERS</div>
+                    <div className="text-[color:var(--ink-primary)] text-[16px]">{circuit.numCorners}</div>
+                  </div>
+                )}
+                {infoError && (
+                  <div className="text-[13px] text-[color:var(--ink-muted)]">
+                    Couldn&apos;t reach the strategy API for live race details (is uvicorn running on :8000?)
+                  </div>
+                )}
+              </>
+            )}
           </div>
-          <div className="mt-8 flex gap-3">
-            <Link href="/race-hub" className="btn">
+          <div className="mt-8 flex flex-wrap gap-3">
+            <Link href={`/race-hub?raceId=${next?.raceId}`} className="btn">
               View Circuit &amp; Sessions
             </Link>
-            <Link href="/strategy" className="btn btn--accent">
+            <Link href={`/strategy?raceId=${next?.raceId}`} className="btn btn--accent">
               Run Win Probability →
             </Link>
           </div>
@@ -92,18 +153,14 @@ export default function SeasonHub() {
 
         <div className="card p-6 relative overflow-hidden">
           <div className="eyebrow mb-3">TRACK MAP</div>
-          <svg viewBox="0 0 500 500" className="w-full h-auto">
-            <path d={SPA_PATH_D} fill="none" stroke="var(--surface-3)" strokeWidth="14" strokeLinejoin="round" />
-            <path
-              d={SPA_PATH_D}
-              fill="none"
-              stroke="var(--ink-secondary)"
-              strokeWidth="1.25"
-              strokeDasharray="1 8"
-              strokeLinecap="round"
-            />
-          </svg>
-          <div className="absolute top-6 right-6 pill pill--teal">{SPA_QUICK_FACTS.corners} CORNERS</div>
+          {circuit ? (
+            <CircuitTrack pathD={circuit.pathD} />
+          ) : (
+            <div className="aspect-square w-full flex items-center justify-center text-[13px] text-[color:var(--ink-muted)]">
+              No traced map for this circuit yet
+            </div>
+          )}
+          {circuit && <div className="absolute top-6 right-6 pill pill--teal">{circuit.numCorners} CORNERS</div>}
         </div>
       </section>
 

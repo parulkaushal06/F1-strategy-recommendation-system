@@ -120,34 +120,34 @@ function StrategyDashboardInner() {
       <Nav active="/strategy" />
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-8 pb-6">
-        <div className="card p-4 flex flex-wrap items-center gap-4">
+        <div className="card p-4 flex flex-col sm:flex-wrap sm:flex-row items-stretch sm:items-center gap-4">
           <div className="flex items-center gap-2">
-            <span className="eyebrow">SEASON</span>
-            <select className="btn !py-2" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">SEASON</span>
+            <select className="btn !py-2 max-w-full" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
               {seasons.map((y) => (
                 <option key={y} value={y}>{y}</option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="eyebrow">RACE</span>
-            <select className="btn !py-2" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">RACE</span>
+            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
               {races.map((r) => (
                 <option key={r.raceId} value={r.raceId}>{r.name}</option>
               ))}
             </select>
           </div>
           <div className="flex items-center gap-2">
-            <span className="eyebrow">DRIVER</span>
-            <select className="btn !py-2" value={driverId ?? ""} onChange={(e) => setDriverId(Number(e.target.value))}>
+            <span className="eyebrow shrink-0">DRIVER</span>
+            <select className="btn !py-2 max-w-full truncate" value={driverId ?? ""} onChange={(e) => setDriverId(Number(e.target.value))}>
               {drivers.map((d) => (
                 <option key={d.driverId} value={d.driverId}>{d.code} · {d.name}</option>
               ))}
             </select>
           </div>
-          <div className="flex-1 min-w-[220px] flex items-center gap-4">
+          <div className="flex-1 min-w-0 sm:min-w-[220px] flex items-center gap-4">
             <span className="eyebrow shrink-0">LAP</span>
-            <input type="range" min={1} max={maxLap} value={lap} onChange={(e) => setLap(Number(e.target.value))} />
+            <input type="range" min={1} max={maxLap} value={lap} onChange={(e) => setLap(Number(e.target.value))} className="min-w-0 flex-1" />
             <span className="mono text-[14px] shrink-0 w-[64px] text-right">{lap}/{maxLap}</span>
           </div>
         </div>
@@ -191,10 +191,10 @@ function StrategyDashboardInner() {
 
         <div className="card p-6 flex flex-col">
           <div className="eyebrow mb-2">WIN PROBABILITY · LAP {lap}/{maxLap}</div>
-          <div className="flex items-end gap-4 mb-2">
-            <div className="display text-[84px] leading-none">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2">
+            <div className="display text-[56px] sm:text-[72px] md:text-[84px] leading-none">
               {data ? Math.round(data.current.winProbability) : "—"}
-              <span className="text-[36px] align-top">%</span>
+              <span className="text-[28px] sm:text-[32px] md:text-[36px] align-top">%</span>
             </div>
             <div className="pill mb-3">
               <span className="dot" />
