@@ -101,13 +101,23 @@ def add_tire_stint_features(df: pd.DataFrame) -> pd.DataFrame:
 def add_strategy_proxy_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     Rule-based proxy flags for DRS zone and pit window, used before real
-    telemetry (OpenF1) is merged in. See docs/06_known_limitations.md section 2
-    for the measured accuracy of drs_zone_proxy against real DRS telemetry
-    (78% agreement, 54-55% recall -- validated in validate_drs_proxy.py).
+    telemetry (OpenF1) is merged in.
+
+    DRS_GAP_THRESHOLD_MS was originally a guess (1000ms, i.e. the "1 second"
+    rule DRS is commonly described by). It has since been empirically tuned
+    against real DRS telemetry from 2 validated races (see
+    tune_drs_threshold.py and docs/06_known_limitations.md section 2):
+    1250ms gives the same overall agreement as 1000ms (78.1%) but with
+    meaningfully better recall (62.0% vs 54.1%) for a modest increase in
+    false positive rate (16.3% vs 13.5%). Tuned against only 2,161 rows from
+    2 races -- treated as a reasonable estimate, not a guaranteed season-wide
+    optimum.
     """
+    DRS_GAP_THRESHOLD_MS = 1250
+
     df = df.sort_values(["raceId", "lap", "position"])
     df["gap_to_ahead_ms"] = df.groupby(["raceId", "lap"])["gap_to_leader_ms"].diff().fillna(0)
-    df["drs_zone_proxy"] = (df["gap_to_ahead_ms"].abs() <= 1000).astype(int)
+    df["drs_zone_proxy"] = (df["gap_to_ahead_ms"].abs() <= DRS_GAP_THRESHOLD_MS).astype(int)
     df["pit_window_proxy"] = df["laps_since_last_pit"].between(15, 30).astype(int)
     return df
 

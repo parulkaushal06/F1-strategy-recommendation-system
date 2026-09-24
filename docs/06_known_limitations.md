@@ -18,8 +18,8 @@ Real DRS activation data exists in OpenF1's `car_data` endpoint, but was only fe
 for **2 races** (Bahrain, Brazil/Interlagos — an earlier version of this document said
 3 races including Monza; only 2 `car_data` files actually exist in `data/raw/openf1_car_data/`,
 this has been corrected). For the remaining ~99.3% of the dataset, `drs_zone_proxy` is a
-rule-based estimate (`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) — an
-approximation of DRS *eligibility*, not confirmed activation.
+rule-based estimate (`gap_to_ahead_ms <= 1250`, empirically tuned — see below — from an
+original 1000ms guess) — an approximation of DRS *eligibility*, not confirmed activation.
 
 **Validation results** (see `validate_drs_proxy.py`): real DRS telemetry (sampled at
 ~3.7 Hz) was bucketed into laps using each lap's start timestamp, then compared against
@@ -40,6 +40,33 @@ checked once per lap at that exact location, whereas `drs_zone_proxy` uses whate
 `gap_to_ahead_ms` value is stored for that lap in the per-lap dataset — a looser,
 whole-lap approximation rather than a check at the real detection point. This is a
 genuine, now-measured limitation of the proxy, not an assumption.
+
+**Threshold tuning** (see `tune_drs_threshold.py`): the original 1000ms threshold was a
+guess (the "1 second DRS rule" F1 is commonly described by), never empirically checked.
+With real ground truth now available, a range of thresholds was tested directly:
+
+| Threshold | Agreement | Recall | False positive rate |
+|---|---|---|---|
+| 500ms | 70.3% | 15.9% | 10.7% |
+| 750ms | 74.9% | 38.5% | 12.5% |
+| 1000ms (original) | 78.1% | 54.1% | 13.5% |
+| **1250ms (adopted)** | **78.1%** | **62.0%** | 16.3% |
+| 1500ms | 76.8% | 67.4% | 19.9% |
+| 2000ms | 71.7% | 72.4% | 28.6% |
+| 2500ms | 67.0% | 74.7% | 35.7% |
+
+**Decision**: switched to **1250ms** (`build_features.py`, `DRS_GAP_THRESHOLD_MS`). Same
+overall agreement as 1000ms (78.1%), but meaningfully better recall (62.0% vs 54.1%) for
+a modest false-positive increase (16.3% vs 13.5%) — a better trade-off for a strategy
+tool, where under-flagging a real opportunity (missed recall) is arguably more costly
+than an occasional over-flag. The same threshold was also applied to the race-craft
+attack/defend logic in `recommend_action.py` for consistency, since it was explicitly
+defined to match `drs_zone_proxy`'s definition.
+
+**Caveat, stated plainly**: this was tuned against only 2,161 rows from 2 races. It's a
+reasonable, data-backed estimate, not a guaranteed season-wide optimum — there isn't
+enough real ground truth to rule out some overfitting to these 2 specific circuits'
+layouts. Worth revisiting if more real DRS telemetry is ever fetched for additional races.
 
 ## 3. OpenF1 telemetry coverage is sparse relative to the full dataset
 

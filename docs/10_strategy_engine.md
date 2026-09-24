@@ -89,11 +89,12 @@ of silently giving a misleading answer.
 
 ## 4. DRS recommendation
 
-Uses the existing `drs_zone_proxy` feature (`gap_to_ahead_ms <= 1000`, i.e.
-within 1 second of the car ahead). Validated against real DRS telemetry from
-a 2-race sample (Bahrain, Brazil/Interlagos): 78% overall agreement, 54-55%
-recall, 13.5% false positive rate — see `06_known_limitations.md` §2 for the
-full breakdown and `validate_drs_proxy.py` for the validation script itself.
+Uses the existing `drs_zone_proxy` feature (`gap_to_ahead_ms <= 1250`, empirically
+tuned from an original 1000ms guess — see `06_known_limitations.md` §2 for the
+full threshold comparison). Validated against real DRS telemetry from a 2-race
+sample (Bahrain, Brazil/Interlagos): 78% overall agreement, 62.0% recall at the
+adopted 1250ms threshold, 16.3% false positive rate — see `validate_drs_proxy.py`
+and `tune_drs_threshold.py` for the validation and tuning scripts themselves.
 
 ## 5. ERS recommendation (proxy)
 

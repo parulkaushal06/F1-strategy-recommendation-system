@@ -296,7 +296,7 @@ class StrategyEngine:
         pace_delta = row.get("pace_delta_to_fastest_ms", 0) or 0
         losing_places = (row.get("position_change", 0) or 0) < 0
 
-        DRS_THRESHOLD_MS = 1000  # matches drs_zone_proxy's own definition
+        DRS_THRESHOLD_MS = 1250  # matches drs_zone_proxy's own definition (see build_features.py)
 
         under_attack = gap_behind is not None and gap_behind <= DRS_THRESHOLD_MS
         attacking_chance = gap_ahead is not None and gap_ahead <= DRS_THRESHOLD_MS and pace_delta < 300

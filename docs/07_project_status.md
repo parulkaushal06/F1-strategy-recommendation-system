@@ -11,7 +11,7 @@
 - [x] Engineered core features (race progress, pace, gap-to-leader, pit/tire proxies)
 - [x] Consolidated all OpenF1 race files into one table
 - [x] Bridged Ergast and OpenF1 ID systems (driver code + circuit name matching)
-- [x] Produced final merged dataset (320,274 rows × 72 → cleaned to 64 columns)
+- [x] Produced final merged dataset (320,274 rows × 68 → cleaned to 66 columns)
 - [x] Cleaned data with validated fixes (duplicate columns resolved, cross-source
       agreement checks passed — see `04_data_cleaning.md`)
 - [x] Built full data dictionary
@@ -93,6 +93,11 @@
       13.5% false positive rate across 2,161 matched (driver, lap) rows —
       see `06_known_limitations.md` §2 for the full breakdown and the likely
       cause of the recall gap (whole-lap proxy vs. a fixed real detection point)
+- [x] Tuned the DRS gap threshold empirically against the same real telemetry
+      (`tune_drs_threshold.py`) rather than leaving the original 1000ms guess
+      unchecked; switched to 1250ms (same 78.1% agreement, recall improved
+      54.1% -> 62.0%) in both `build_features.py` and `recommend_action.py`'s
+      race-craft logic — see `06_known_limitations.md` §2
 - [x] Fixed the homepage hero section to dynamically reflect the actual
       next/selected race (using the season calendar's `status: "next"` entry
       and a new `/api/race-info` call) instead of hardcoded Belgian GP
