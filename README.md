@@ -36,20 +36,19 @@ Recommendations:
   station, using gap-to-car-ahead, gap-to-car-behind, pace delta, and position trend
 - **Feature importance analysis** — what actually drives winning (position and gap to
   leader dominate)
-- **Interactive Streamlit dashboard** — pick a season, race, and driver, then scrub
-  lap by lap through a real historical race and watch every number update live
-- **RACECRAFT web dashboard** (`web/`) — a Next.js + Tailwind rebuild of the same live
-  intelligence, with real circuit maps for 31 tracks (see below)
+- **RACECRAFT dashboard** (`web/`) — a Next.js + Tailwind app with real circuit maps for
+  31 tracks, wired to the same trained model and `StrategyEngine` through a FastAPI layer
 - Cross-source data validation between two independent F1 data providers
   (98.9%–100% agreement on pit stops and driver codes)
 - Explicit, documented separation between *measured* signals and *inferred* proxies
 
-## 🗺️ RACECRAFT Web Dashboard
+## 🗺️ RACECRAFT Dashboard
 
-A second, richer frontend alongside Streamlit: Season Hub, Race Hub, Strategy Dashboard,
-Driver Comparison, and Results, all wired to the same trained model and `StrategyEngine`
-through a small FastAPI layer (Streamlit talks to them directly in-process; this frontend
-can't load a `.pkl` file itself, so it calls the API instead).
+Season Hub, Race Hub, Strategy Dashboard, Driver Comparison, and Results — all wired to
+the same trained model and `StrategyEngine` through a small FastAPI layer (the frontend
+can't load a `.pkl` file itself, so it calls the API instead). This was preceded by a
+Streamlit prototype used to validate the strategy engine's output in a live UI before
+building this out; that prototype has since been removed in favor of a single frontend.
 
 Circuit maps are **real, not illustrative**: 31 of the 35 circuits in this project's
 dataset have actual track outlines (traced by
@@ -78,10 +77,8 @@ Opens at `http://localhost:3000`. The API must be running first — the frontend
 
 - **Python** — pandas, numpy
 - **scikit-learn** — `RandomForestClassifier` for win probability
-- **Streamlit** — interactive dashboard
-- **Plotly** — live charts inside the Streamlit dashboard
 - **FastAPI** + **uvicorn** — API layer serving the model/`StrategyEngine` to the web frontend
-- **Next.js** + **Tailwind CSS** — RACECRAFT web dashboard (`web/`)
+- **Next.js** + **Tailwind CSS** — RACECRAFT dashboard (`web/`)
 - **FastF1** — real corner and sector-boundary telemetry for circuit map alignment
 - **joblib** — model persistence
 - **Data sources** — [Ergast/Kaggle F1 historical database](http://ergast.com/mrd/) (1950–2024),
@@ -104,7 +101,6 @@ F1 Sport/
 │   ├── strategy/          # strategy recommendation engine
 │   └── api/               # FastAPI wrapper around the model + StrategyEngine
 ├── models/                # saved trained model files
-├── dashboard/             # Streamlit dashboard app
 ├── web/                   # RACECRAFT Next.js + Tailwind dashboard
 ├── assets/circuits-svg/   # real circuit outline SVGs (CC BY 4.0, see ATTRIBUTION.md)
 ├── tools/circuit-alignment/  # fetches real FastF1 corner/sector data, aligns onto the SVGs
@@ -125,14 +121,8 @@ pip install -r requirements.txt
 
 ## ▶️ How to Run
 
-**Run the Streamlit dashboard:**
-```bash
-streamlit run dashboard/app.py
-```
-Opens at `http://localhost:8501`. Pick a season → race → driver, then move the lap
-slider to see win probability and recommendations update live.
-
-**Run the RACECRAFT web dashboard** — see the section above.
+**Run RACECRAFT** — see the [RACECRAFT Dashboard](#-racecraft-dashboard) section above
+for the two-terminal setup (FastAPI backend + Next.js frontend).
 
 **Use the strategy engine directly in Python:**
 ```python

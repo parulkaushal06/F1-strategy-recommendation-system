@@ -1,51 +1,98 @@
-# Dashboard
+# Dashboard — RACECRAFT (Next.js + FastAPI)
 
-`dashboard/app.py` — Streamlit app that ties the win-probability model and the
-full strategy engine (`10_strategy_engine.md`) into one live view, answering
-Objective 4.
+`web/` (Next.js + TypeScript + Tailwind) talks to `src/api/main.py` (FastAPI),
+which wraps the win-probability model and `StrategyEngine` — this is the
+project's single dashboard, answering Objective 4.
 
-## What it shows
+## Design history
 
-- **Sidebar**: pick a season → race → driver, then a lap slider.
-- **Top row**: current win probability, pit urgency score, tire age, and a
-  recommendation checklist (pit, DRS, ERS, race craft), matching the original
-  project spec's mock dashboard layout.
-- **Win probability trend**: a line chart of this driver's predicted win
-  probability across every lap raced so far this session.
-- **Full field table**: every driver's position, win probability, pit status,
-  DRS, and race-craft call for the selected lap — gives race-craft context
-  (e.g. seeing that the car ahead in the table is also under threat from
-  behind).
-- **Feature importance (expandable)**: answers Objective 1 (what actually
-  drives winning) directly in the dashboard, not just in `09_model_results.md`.
+The first working dashboard was a Streamlit app (`dashboard/app.py`), built
+to validate that the strategy engine's output was actually usable in a live,
+lap-by-lap UI before investing in a full frontend. Once that was confirmed,
+it was replaced with this full-stack app and removed from the repo — one
+frontend, one backend, rather than maintaining two UIs against the same
+engine. `docs/07_project_status.md` keeps the historical record of that
+change.
+
+## Architecture
+
+```
+web/ (Next.js)  --HTTP-->  src/api/main.py (FastAPI)  -->  StrategyEngine + model
+```
+
+The frontend can't load a `.pkl` file itself (it runs in the browser), so the
+FastAPI layer is a thin wrapper: it loads the model, feature list, and
+`StrategyEngine` once at startup, and exposes them as JSON endpoints
+(`/api/seasons`, `/api/races`, `/api/drivers`, `/api/laps`, `/api/strategy`,
+`/api/compare`). See `src/api/main.py` for the full endpoint list.
+
+## Pages
+
+- **Home / Season Hub** (`web/src/app/page.tsx`) — season overview, current
+  project status pills, standings snapshot.
+- **Race Hub** (`web/src/app/race-hub/page.tsx`) — pick a season and race,
+  see the real circuit map for that track (see "Circuit maps" below).
+- **Strategy** (`web/src/app/strategy/page.tsx`) — the core dashboard: pick a
+  driver, scrub through the race lap by lap, see live win probability, pit
+  urgency score, tire age, and the full pit/DRS/ERS/race-craft recommendation
+  set from `StrategyEngine.recommend_full()`, alongside the circuit map and
+  the full-field table for that lap.
+- **Compare** (`web/src/app/compare/page.tsx`) — two drivers side by side,
+  win-probability trend lines for both across the same race.
+- **Results** (`web/src/app/results/page.tsx`) — static race result reference
+  page.
 
 ## Important framing choice: this replays real races, it isn't live
 
 There's no live telemetry feed wired into this project — see
-`06_known_limitations.md`. Rather than pretend otherwise, the dashboard is
-explicit (in the sidebar caption and the footer) that it **replays a real
-historical race lap by lap**, computing every number (win probability, gaps,
-recommendations) exactly the way it would be computed from a live feed. The
-only difference is the race already happened. This keeps the same standard
-of honesty as the ERS/DRS proxy labeling elsewhere in the project — better to
-be upfront than let someone assume it's connected to a live broadcast feed.
+`06_known_limitations.md`. Rather than pretend otherwise, the app is explicit
+that it **replays a real historical race lap by lap**, computing every number
+(win probability, gaps, recommendations) exactly the way it would be computed
+from a live feed. The only difference is the race already happened. This
+keeps the same standard of honesty as the ERS/DRS proxy labeling elsewhere in
+the project — better to be upfront than let someone assume it's connected to
+a live broadcast feed.
+
+## Circuit maps
+
+31 of the 35 circuits in this project's dataset have **real, not
+illustrative** track outlines (traced by
+[julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg),
+CC BY 4.0 — see `assets/circuits-svg/ATTRIBUTION.md`), with corners and
+sector-boundary markers registered onto that outline using real FastF1
+telemetry (`tools/circuit-alignment/`). Alignment quality is honestly
+reported per circuit (residual ~20–100px depending on how geometrically
+distinct the track's corners are). 4 circuits (Valencia, Korea, India,
+Malaysia) have no real map — FastF1 doesn't reliably expose session data for
+races before ~2018, so this needs a different data source, not just re-running
+the existing alignment pipeline.
 
 ## Running it
 
 ```bash
-pip install streamlit plotly
-streamlit run dashboard/app.py
+# Terminal 1 — the API (real model + StrategyEngine)
+uvicorn src.api.main:app --reload --port 8000
+
+# Terminal 2 — the frontend
+cd web
+npm install
+npm run dev
 ```
 
-Opens at `http://localhost:8501` by default.
+Opens at `http://localhost:3000`. The API must be running first — the
+frontend calls `http://localhost:8000` directly by default, configurable via
+`web/.env.local` (`NEXT_PUBLIC_API_URL`).
 
 ## Design notes
 
-- `st.cache_data` / `st.cache_resource` used so the ~93MB cleaned dataset and
-  the model only load once per session, not on every slider move.
-- The field table calls `engine.recommend_full()` once per driver on the
-  selected lap (typically ~20 drivers) — fast enough for interactive use
-  since it's all in-memory pandas/sklearn inference, no external calls.
-- Chart library is Plotly (already common in the Python data stack and
-  interactive by default) rather than matplotlib, for a cleaner iteration
-  experience inside Streamlit.
+- The model, feature list, and dataset load **once at FastAPI startup**, not
+  per-request — same intent as the caching the earlier Streamlit prototype
+  used, just at the process level instead of per-session.
+- `/api/strategy`'s full-field table calls `StrategyEngine.recommend_batch()`
+  once for the whole field rather than looping `recommend_full()` per driver
+  — see the note in `src/api/main.py` and `09_model_results.md` for the
+  speed impact this had.
+- CORS is currently restricted to `localhost:3000`/`3100` in
+  `src/api/main.py` — this needs to become environment-driven before
+  deploying anywhere public (see `12_industrial_roadmap.md` for the full
+  deployment checklist).

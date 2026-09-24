@@ -12,17 +12,34 @@ Overtake Mode" recommendation this project produces is inferred from proxy signa
 (e.g., throttle/speed patterns on straights), not ground-truth team telemetry. This is
 stated clearly in both the dashboard output and this documentation.
 
-## 2. DRS status is a rule-based proxy for 99.6% of the dataset
+## 2. DRS status is a rule-based proxy, now validated against real telemetry
 
 Real DRS activation data exists in OpenF1's `car_data` endpoint, but was only fetched
-for 3 races (Bahrain, Monza, Interlagos) due to its size (see `01_data_sources.md`).
-For the remaining 320,274 − ~few thousand rows, `drs_zone_proxy` is a rule-based
-estimate (`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) — a
-reasonable approximation of DRS *eligibility*, not confirmed activation.
+for **2 races** (Bahrain, Brazil/Interlagos — an earlier version of this document said
+3 races including Monza; only 2 `car_data` files actually exist in `data/raw/openf1_car_data/`,
+this has been corrected). For the remaining ~99.3% of the dataset, `drs_zone_proxy` is a
+rule-based estimate (`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) — an
+approximation of DRS *eligibility*, not confirmed activation.
 
-**Validation plan**: compare `drs_zone_proxy` against real DRS status from the 3
-validated races to report an agreement percentage — turning this limitation into a
-measured, reported accuracy rather than an unverified assumption.
+**Validation results** (see `validate_drs_proxy.py`): real DRS telemetry (sampled at
+~3.7 Hz) was bucketed into laps using each lap's start timestamp, then compared against
+`drs_zone_proxy` for the same (raceId, driverId, lap) across 2,161 matched rows from the
+2 validated races. Real DRS codes follow OpenF1's documented mapping: 0/1 = off, 8 =
+detected/eligible (in a DRS zone, gap < 1s, not yet activated), 10/12/14 = actually on.
+
+| Comparison | Agreement | Recall | False positive rate |
+|---|---|---|---|
+| Proxy vs. real "eligible or on" (code 8/10/12/14) | 78.1% | 54.1% | 13.5% |
+| Proxy vs. real "actually on" (code 10/12/14) | 78.6% | 55.2% | 13.5% |
+
+**Honest read of this result**: the proxy is not overconfident (a 13.5% false positive
+rate is fairly low — when it says "no DRS," it's usually right), but it misses close to
+half of real DRS activations (54-55% recall). The most likely cause: real DRS eligibility
+is decided by the gap at a **fixed detection point** on track (just before the DRS zone),
+checked once per lap at that exact location, whereas `drs_zone_proxy` uses whatever
+`gap_to_ahead_ms` value is stored for that lap in the per-lap dataset — a looser,
+whole-lap approximation rather than a check at the real detection point. This is a
+genuine, now-measured limitation of the proxy, not an assumption.
 
 ## 3. OpenF1 telemetry coverage is sparse relative to the full dataset
 
@@ -52,14 +69,13 @@ difference, not a data error (see `04_data_cleaning.md`, section 4).
 This is correct, not a bug — the race was cancelled due to flooding and does not appear
 in the 2023 Ergast results at all.
 
-## 7. Homepage hero section is hardcoded to the Belgian Grand Prix
+---
 
-The main homepage (`web/src/app/page.tsx`) displays a "featured race" hero section
-with title, description, quick facts, and track map — but these are hardcoded to the
-Belgian Grand Prix (Spa-Francorchamps) rather than dynamically reflecting the actual
-"next" race in the season data. Only the small "ROUND X OF Y" line above the title is
-genuinely dynamic; it coincidentally matches the hardcoded content because round 12
-(Belgium) happens to be marked as "next" in the current season data file. This was
-identified during a walkthrough of the frontend, not caught earlier since it visually
-looks correct by coincidence. Not yet fixed — noted here so it's a deliberate, tracked
-decision rather than an unnoticed bug.
+**Note on scope**: an earlier version of this document had an item 7 here
+("homepage hero hardcoded to Belgian GP"). That was a plain frontend bug —
+fixable code, not a structural constraint of the data or approach — and
+didn't actually belong in a "known limitations" document, which is meant
+for things that can't simply be fixed (proxy accuracy, data coverage gaps,
+etc.). It's since been fixed; see `07_project_status.md` for the record of
+that change. Keeping this note rather than silently deleting the history,
+in the same spirit as the rest of this document.

@@ -4,7 +4,9 @@
 
 - [x] Sourced and downloaded historical F1 results data (Ergast/Kaggle, 1950–2024)
 - [x] Sourced and downloaded 2023 telemetry data (OpenF1 API — laps, pits, stints, weather)
-- [x] Fetched real DRS validation data for 3 races (OpenF1 `car_data`)
+- [x] Fetched real DRS validation data for 2 races (OpenF1 `car_data`) —
+      corrected from an earlier "3 races" claim; only 2 `car_data` files
+      actually exist (Bahrain, Brazil/Interlagos)
 - [x] Merged Ergast tables into one lap-level dataset (589,081 rows)
 - [x] Engineered core features (race progress, pace, gap-to-leader, pit/tire proxies)
 - [x] Consolidated all OpenF1 race files into one table
@@ -86,18 +88,40 @@
 - [x] Fixed a real React bug in the frontend (`CircuitTrack.tsx`): a ref was
       read directly during render instead of inside `useEffect`, which could
       cause the live car-position dot to not update reliably
+- [x] Validated `drs_zone_proxy` against real DRS telemetry from the 2-race
+      sample (`validate_drs_proxy.py`): 78% overall agreement, 54-55% recall,
+      13.5% false positive rate across 2,161 matched (driver, lap) rows —
+      see `06_known_limitations.md` §2 for the full breakdown and the likely
+      cause of the recall gap (whole-lap proxy vs. a fixed real detection point)
+- [x] Fixed the homepage hero section to dynamically reflect the actual
+      next/selected race (using the season calendar's `status: "next"` entry
+      and a new `/api/race-info` call) instead of hardcoded Belgian GP
+      content; the same fix was applied to Race Hub's default-race selection
+- [x] Added API input validation, a global exception handler (no stack
+      traces leaked to clients), startup checks with actionable error
+      messages when data/model files are missing, structured logging, and
+      environment-driven CORS/data-path configuration — see `src/api/main.py`
+- [x] Added a `tests/` suite (pytest + FastAPI TestClient) covering both
+      the API error-handling work and regression tests for the two
+      strategy-engine bugs found earlier (tire-age reset, leader false-attack)
+- [x] Made the frontend mobile-responsive (working nav menu, stacked filter
+      bars, scaled headings) across all 5 pages
+
+- [x] Cleaned up `.gitignore`, removed `data/` and `models/*.pkl` from
+      version control (git bloat was ~500MB of committed data/model files;
+      the pipeline scripts regenerate all of it locally, so nothing is lost)
 
 ## In progress / next steps
 
-- [ ] Validate `drs_zone_proxy` against real DRS data from the 3-race telemetry sample
-- [ ] Fix the homepage hero section to dynamically reflect the actual next/selected
-      race instead of hardcoded Belgian GP content — see `06_known_limitations.md` §7
 - [ ] Wire SHAP per-prediction explanations into the dashboard UI (currently only
       exists in the modeling notebook)
-- [ ] Clean up `.gitignore`, remove `venv/`/`data/` from version control before
-      pushing to GitHub (see `12_industrial_roadmap.md`)
 - [ ] Deploy: frontend to Vercel, backend to Render/Railway — get a live demo link
 - [ ] Set up GitHub Actions CI (lint + type-check + tests on every push)
+- [ ] Add error handling and logging to the data pipeline scripts
+      (`merge_datasets.py`, `build_features.py`, `clean_data.py`,
+      `train_model.py`) to match the level of robustness now in `src/api/main.py`
+- [ ] Formalize cross-validation across multiple seasons into a proper,
+      repeatable script (the walk-forward checks so far were done manually)
 
 ## Design decisions worth highlighting in an interview / write-up
 
@@ -106,7 +130,7 @@
   data rather than assumed correct
 - Cross-source validation used as a genuine data-quality check (100% pit-stop agreement
   between Ergast and OpenF1), not just for cleaning
-- Deliberate scoping of expensive telemetry fetches (3 races, not full season) with
+- Deliberate scoping of expensive telemetry fetches (2 races, not full season) with
   documented reasoning
 - Time-aware train/test splitting to avoid leakage (a common mistake in
   race-outcome prediction projects), extended to walk-forward validation across

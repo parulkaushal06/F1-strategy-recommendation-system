@@ -14,32 +14,58 @@ Run from project root:
     python src/data/merge_datasets.py
 """
 
+import logging
 import os
+import sys
+
 import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger(__name__)
 
 RAW_DIR = "data/raw/ergast"
 INTERIM_DIR = "data/interim"
 PROCESSED_DIR = "data/processed"
 
-os.makedirs(INTERIM_DIR, exist_ok=True)
-os.makedirs(PROCESSED_DIR, exist_ok=True)
+REQUIRED_RAW_FILES = [
+    "races", "results", "drivers", "constructors",
+    "qualifying", "pit_stops", "lap_times", "status", "circuits",
+]
+
+# Columns the rest of the pipeline (build_features.py, clean_data.py,
+# recommend_action.py) depends on existing in the output. If any of these
+# end up missing or entirely null, something upstream broke silently and
+# should fail loudly here instead of surfacing as a confusing error two
+# scripts later.
+REQUIRED_OUTPUT_COLUMNS = [
+    "raceId", "driverId", "lap", "position", "grid",
+    "gap_to_leader_ms", "pit_stop_this_lap", "laps_since_last_pit", "won",
+]
 
 
-def load_raw():
-    """Load all required Ergast CSVs."""
-    files = [
-        "races", "results", "drivers", "constructors",
-        "qualifying", "pit_stops", "lap_times", "status", "circuits",
-    ]
+def load_raw() -> dict:
+    """Load all required Ergast CSVs, failing with a clear, actionable message
+    if any are missing rather than a raw FileNotFoundError three frames deep."""
     data = {}
-    for f in files:
+    for f in REQUIRED_RAW_FILES:
         path = os.path.join(RAW_DIR, f"{f}.csv")
-        data[f] = pd.read_csv(path)
-        print(f"Loaded {f}.csv -> {data[f].shape}")
+        if not os.path.exists(path):
+            raise FileNotFoundError(
+                f"Required raw file not found: {path}\n"
+                f"Fix: run the Ergast data collection step first "
+                f"(see docs/02_data_collection.md) before this script."
+            )
+        try:
+            data[f] = pd.read_csv(path)
+        except pd.errors.EmptyDataError:
+            raise ValueError(f"{path} exists but is empty. Re-download it and try again.")
+        if data[f].empty:
+            logger.warning("%s.csv loaded with 0 rows -- this is likely a problem.", f)
+        logger.info("Loaded %s.csv -> %s", f, data[f].shape)
     return data
 
 
-def build_lap_level_table(data):
+def build_lap_level_table(data: dict) -> pd.DataFrame:
     laps = data["lap_times"].copy()
     races = data["races"][["raceId", "year", "round", "circuitId", "name", "date"]]
     results = data["results"][
@@ -62,6 +88,14 @@ def build_lap_level_table(data):
     df = df.merge(drivers, on="driverId", how="left")
     df = df.merge(constructors, on="constructorId", how="left")
     df = df.merge(circuits, on="circuitId", how="left")
+
+    if df.empty:
+        raise RuntimeError(
+            "Merging lap_times with races/results/drivers/constructors/circuits "
+            "produced 0 rows. Check that raceId/driverId/constructorId/circuitId "
+            "values actually overlap between these raw files (e.g. a partial or "
+            "mismatched download)."
+        )
 
     # ---- 2. Gap to leader per lap ----
     # lap_times.milliseconds = time taken for that single lap
@@ -118,6 +152,22 @@ def build_lap_level_table(data):
         df.groupby(["raceId", "driverId"], group_keys=False).apply(laps_since_pit).explode().values
     )
 
+    # Regression guard for the bug described above: fail loudly, at build time,
+    # if it ever comes back, instead of only being caught by chance months
+    # later during manual spot-checking (see tests/test_data_pipeline.py for
+    # the automated version of this same check).
+    real_pit_rows = df[df["pit_stop_this_lap"] == 1]
+    if len(real_pit_rows) > 0:
+        zero_tire_age_share = (real_pit_rows["laps_since_last_pit"] == 0).mean()
+        if zero_tire_age_share > 0.5:
+            raise RuntimeError(
+                f"{zero_tire_age_share:.0%} of real pit-stop rows have "
+                f"laps_since_last_pit == 0 -- this is the exact tire-age reset "
+                f"bug that was fixed before (see the comment above). Something "
+                f"has regressed; do not proceed to build_features.py with this "
+                f"output."
+            )
+
     # ---- 4. Label: did this driver win the race? ----
     df["won"] = (df["positionOrder"] == 1).astype(int)
 
@@ -132,19 +182,33 @@ def build_lap_level_table(data):
     ]
     df = df[[c for c in final_cols if c in df.columns]]
 
+    missing_required = [c for c in REQUIRED_OUTPUT_COLUMNS if c not in df.columns]
+    if missing_required:
+        raise RuntimeError(f"Output is missing required columns: {missing_required}")
+
     return df
 
 
 def main():
+    os.makedirs(INTERIM_DIR, exist_ok=True)
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
+
+    logger.info("Loading raw Ergast CSVs from %s...", RAW_DIR)
     data = load_raw()
+
+    logger.info("Building lap-level table...")
     df = build_lap_level_table(data)
 
     interim_path = os.path.join(INTERIM_DIR, "lap_level_merged.csv")
     df.to_csv(interim_path, index=False)
-    print(f"\nSaved merged lap-level dataset -> {interim_path}")
-    print(f"Shape: {df.shape}")
+    logger.info("Saved merged lap-level dataset -> %s", interim_path)
+    logger.info("Shape: %s", df.shape)
     print(df.head())
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception:
+        logger.exception("merge_datasets.py failed.")
+        sys.exit(1)

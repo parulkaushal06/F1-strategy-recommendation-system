@@ -32,7 +32,7 @@ covers both (a) full historical race results and (b) detailed car telemetry.
   - `/weather` — track/air temperature, rainfall, wind, humidity
   - `/drivers` — driver_number to name/team mapping
   - `/car_data` — high-frequency (~3.7Hz) telemetry including **real DRS status**,
-    fetched only for 3 selected races (see below) due to its size
+    fetched only for 2 selected races (see below) due to its size
 - **What it provides that Ergast can't**: real tire compound, real DRS activation
   status, weather, granular speed telemetry.
 
@@ -45,13 +45,15 @@ environment issue, not a data problem). OpenF1 was used instead as a more reliab
 lightweight REST alternative — this is a legitimate engineering substitution, documented
 here rather than hidden.
 
-## Why DRS validation only covers 3 races, not the full season
+## Why DRS validation only covers 2 races, not the full season
 
 OpenF1's `car_data` endpoint is per-car, high-frequency telemetry — a full season would be
-tens of millions of rows. Instead, `car_data` was fetched for **3 high-overtaking races**
-(Bahrain, Italy/Monza, Brazil/Interlagos) specifically to validate the project's rule-based
-DRS proxy (`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) against real
-DRS activation data, rather than to power the main model.
+tens of millions of rows. Instead, `car_data` was fetched for **2 high-overtaking races**
+(Bahrain, Brazil/Interlagos) specifically to validate the project's rule-based DRS proxy
+(`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) against real DRS
+activation data, rather than to power the main model. The measured result — 78% overall
+agreement, 54-55% recall, 13.5% false positive rate — is reported in full in
+`06_known_limitations.md` section 2.
 
 ## Summary table
 
@@ -61,7 +63,7 @@ DRS activation data, rather than to power the main model.
 | Race results | ✅ | — |
 | Pit stops | ✅ | ✅ (validated against Ergast, 100% agreement — see `04_data_cleaning.md`) |
 | Tire compound | ❌ (proxy only) | ✅ real |
-| DRS status | ❌ (proxy only) | ✅ real (3 races only, via `car_data`) |
+| DRS status | ❌ (proxy only) | ✅ real (2 races only, via `car_data` — validated, see `06_known_limitations.md`) |
 | Weather | ❌ | ✅ |
 | Real ERS deployment mode | ❌ — not public anywhere | ❌ — not public anywhere |
 

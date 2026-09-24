@@ -10,32 +10,47 @@ Run from project root:
     python src/features/build_features.py
 """
 
+import logging
 import os
-import pandas as pd
+import sys
+
 import numpy as np
+import pandas as pd
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)s | %(message)s")
+logger = logging.getLogger(__name__)
 
 INTERIM_DIR = "data/interim"
 PROCESSED_DIR = "data/processed"
 
-os.makedirs(PROCESSED_DIR, exist_ok=True)
 
-
-def load_merged():
+def load_merged() -> pd.DataFrame:
     path = os.path.join(INTERIM_DIR, "lap_level_merged.csv")
+    if not os.path.exists(path):
+        raise FileNotFoundError(
+            f"{path} not found. Fix: run `python src/data/merge_datasets.py` first."
+        )
     df = pd.read_csv(path)
-    print(f"Loaded merged dataset -> {df.shape}")
+    if df.empty:
+        raise ValueError(f"{path} exists but has 0 rows -- re-run merge_datasets.py.")
+    logger.info("Loaded merged dataset -> %s", df.shape)
     return df
 
 
-def filter_modern_era(df, min_year=2011):
+def filter_modern_era(df: pd.DataFrame, min_year: int = 2011) -> pd.DataFrame:
     """Lap-level timing data is sparse/unreliable before ~2011."""
     before = df.shape[0]
     df = df[df["year"] >= min_year].copy()
-    print(f"Filtered to year >= {min_year}: {before} -> {df.shape[0]} rows")
+    logger.info("Filtered to year >= %d: %d -> %d rows", min_year, before, df.shape[0])
+    if df.empty:
+        raise ValueError(
+            f"Filtering to year >= {min_year} removed every row. Check the 'year' "
+            f"column in the merged dataset actually contains years >= {min_year}."
+        )
     return df
 
 
-def add_race_progress_features(df):
+def add_race_progress_features(df: pd.DataFrame) -> pd.DataFrame:
     """How far into the race this lap is, per race."""
     total_laps = df.groupby("raceId")["lap"].transform("max")
     df["total_laps"] = total_laps
@@ -43,7 +58,7 @@ def add_race_progress_features(df):
     return df
 
 
-def add_position_features(df):
+def add_position_features(df: pd.DataFrame) -> pd.DataFrame:
     """Grid vs current position, and lap-over-lap position change."""
     df = df.sort_values(["raceId", "driverId", "lap"])
     df["position_vs_grid"] = df["grid"] - df["position"]  # positive = gained places
@@ -51,7 +66,7 @@ def add_position_features(df):
     return df
 
 
-def add_pace_features(df, window=3):
+def add_pace_features(df: pd.DataFrame, window: int = 3) -> pd.DataFrame:
     """Rolling average lap time (pace) over the last N laps, per driver per race."""
     df = df.sort_values(["raceId", "driverId", "lap"])
     df["rolling_lap_time_ms"] = (
@@ -64,7 +79,7 @@ def add_pace_features(df, window=3):
     return df
 
 
-def add_gap_features(df):
+def add_gap_features(df: pd.DataFrame) -> pd.DataFrame:
     """Normalize gap to leader by race progress (early-race gaps mean less)."""
     df["gap_to_leader_s"] = df["gap_to_leader_ms"] / 1000.0
     df["gap_per_lap_covered_s"] = df["gap_to_leader_s"] / df["lap"].replace(0, np.nan)
@@ -72,16 +87,23 @@ def add_gap_features(df):
     return df
 
 
-def add_tire_stint_features(df):
+def add_tire_stint_features(df: pd.DataFrame) -> pd.DataFrame:
     """laps_since_last_pit already exists as a tire-age proxy from merge_datasets.py."""
+    if "laps_since_last_pit" not in df.columns:
+        raise KeyError(
+            "'laps_since_last_pit' missing -- expected from merge_datasets.py output. "
+            "Re-run the pipeline from the start."
+        )
     df["tire_age_ratio"] = df["laps_since_last_pit"] / df["total_laps"]
     return df
 
 
-def add_strategy_proxy_flags(df):
+def add_strategy_proxy_flags(df: pd.DataFrame) -> pd.DataFrame:
     """
     Rule-based proxy flags for DRS zone and pit window, used before real
-    telemetry (OpenF1) is merged in.
+    telemetry (OpenF1) is merged in. See docs/06_known_limitations.md section 2
+    for the measured accuracy of drs_zone_proxy against real DRS telemetry
+    (78% agreement, 54-55% recall -- validated in validate_drs_proxy.py).
     """
     df = df.sort_values(["raceId", "lap", "position"])
     df["gap_to_ahead_ms"] = df.groupby(["raceId", "lap"])["gap_to_leader_ms"].diff().fillna(0)
@@ -90,7 +112,7 @@ def add_strategy_proxy_flags(df):
     return df
 
 
-def build_features():
+def build_features() -> pd.DataFrame:
     df = load_merged()
     df = filter_modern_era(df, min_year=2011)
     df = add_race_progress_features(df)
@@ -100,13 +122,18 @@ def build_features():
     df = add_tire_stint_features(df)
     df = add_strategy_proxy_flags(df)
 
+    os.makedirs(PROCESSED_DIR, exist_ok=True)
     out_path = os.path.join(PROCESSED_DIR, "lap_level_features.csv")
     df.to_csv(out_path, index=False)
-    print(f"\nSaved feature-engineered dataset -> {out_path}")
-    print(f"Shape: {df.shape}")
+    logger.info("Saved feature-engineered dataset -> %s", out_path)
+    logger.info("Shape: %s", df.shape)
     print(df.columns.tolist())
     return df
 
 
 if __name__ == "__main__":
-    build_features()
+    try:
+        build_features()
+    except Exception:
+        logger.exception("build_features.py failed.")
+        sys.exit(1)
