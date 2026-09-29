@@ -42,6 +42,16 @@ The permanent fix for the ROOT cause (so future retraining doesn't inherit
 the same mislabeled feature) is in `merge_datasets.py`: shift the counter
 reset so a pit lap records the tire age it had BEFORE pitting, then resets
 for the next lap. See that file's `laps_since_pit()` function.
+
+--------------------------------------------------------------------------
+PHASE A: what-if simulation layer (see the PHASE A section inside the class).
+
+compare_pit_timings() -- PIT NOW vs PIT IN N LAPS side-by-side.
+simulate_what_if()    -- one or more actions combined (pit / push / attack).
+
+Honesty standard (same as the DRS proxy): "pit" simulations are grounded in
+real average pit-loss data; "push" and "attack" are clearly-labeled
+ILLUSTRATIVE estimates, labeled as such in every response.
 --------------------------------------------------------------------------
 
 Usage:
@@ -124,6 +134,150 @@ class StrategyEngine:
             sim["rolling_lap_time_ms"] = max(0, row.get("rolling_lap_time_ms", 0) - pace_gain_ms)
 
         return sim
+
+    # =====================================================================
+    # PHASE A: what-if simulation layer
+    #
+    # Honesty note (same standard as the DRS proxy): "pit" simulations are
+    # grounded in real average pit-loss data. "push" and "attack" are
+    # clearly-labeled ILLUSTRATIVE estimates -- no public dataset quantifies
+    # the real benefit of pushing pace or an overtake attempt, so those
+    # numbers are assumptions, not measurements. Every response carries
+    # per_action_notes so the UI can show that label honestly.
+    # =====================================================================
+
+    PUSH_PACE_GAIN_MS = 150        # illustrative per-lap gain when pushing
+    ATTACK_GAP_GAIN_MS = 800       # illustrative gap closure on the car ahead
+    PIT_TIMING_LAPS = (0, 3, 5, 8) # pit-timing comparison grid (0 = pit now)
+
+    # action -> method name that simulates it (validated in simulate_what_if)
+    ACTION_SIMULATORS = {
+        "pit": "simulate_pit_now",
+        "push": "_simulate_action_push",
+        "attack": "_simulate_action_attack",
+    }
+    ACTION_NOTES = {
+        "pit": "grounded in real average pit-loss data",
+        "push": "illustrative estimate -- no real data for pace-change benefit",
+        "attack": "illustrative estimate -- no real data for overtake benefit",
+    }
+
+    def _win_prob(self, row):
+        """Win probability (0-1) for one row (Series or 1-row DataFrame)."""
+        if isinstance(row, pd.DataFrame):
+            row = row.iloc[0]
+        return float(self._predict_proba(pd.DataFrame([row])))
+
+    def simulate_pit_in_n_laps(self, row, laps_ahead):
+        """
+        Return a copy of `row` as if the driver pits N laps from now:
+        tires first age N more laps (degradation), THEN the pit happens
+        (simulate_pit_now). laps_ahead must be >= 1; use simulate_pit_now
+        directly for the "pit this lap" case.
+        """
+        n = int(laps_ahead)
+        if n < 1:
+            raise ValueError("laps_ahead must be >= 1 (use simulate_pit_now for pit-now)")
+        aged = row.copy()
+        aged["laps_since_last_pit"] = (row.get("laps_since_last_pit", 0) or 0) + n
+        total_laps = row.get("total_laps", None)
+        if total_laps:
+            aged["tire_age_ratio"] = min(1.0, float(aged["laps_since_last_pit"]) / float(total_laps))
+        if "pace_delta_to_fastest_ms" in aged:
+            aged["pace_delta_to_fastest_ms"] = (row.get("pace_delta_to_fastest_ms", 0) or 0) \
+                + self.degradation_ms_per_lap * n
+        if "rolling_lap_time_ms" in aged:
+            aged["rolling_lap_time_ms"] = (row.get("rolling_lap_time_ms", 0) or 0) \
+                + self.degradation_ms_per_lap * n
+        return self.simulate_pit_now(aged)
+
+    def _simulate_action_push(self, row):
+        """ILLUSTRATIVE: push pace -- faster laps, gain back on the leader."""
+        sim = row.copy()
+        gain = self.PUSH_PACE_GAIN_MS
+        if "pace_delta_to_fastest_ms" in sim:
+            sim["pace_delta_to_fastest_ms"] = max(0, (row.get("pace_delta_to_fastest_ms", 0) or 0) - gain)
+        if "rolling_lap_time_ms" in sim:
+            sim["rolling_lap_time_ms"] = max(0, (row.get("rolling_lap_time_ms", 0) or 0) - gain)
+        if "gap_to_leader_ms" in sim:
+            sim["gap_to_leader_ms"] = (row.get("gap_to_leader_ms", 0) or 0) - gain
+            sim["gap_to_leader_s"] = sim["gap_to_leader_ms"] / 1000.0
+        return sim
+
+    def _simulate_action_attack(self, row):
+        """ILLUSTRATIVE: attack the car ahead -- close the gap (DRS-tow style)."""
+        sim = row.copy()
+        if "gap_to_ahead_ms" in sim:
+            sim["gap_to_ahead_ms"] = max(0, (row.get("gap_to_ahead_ms", 0) or 0) - self.ATTACK_GAP_GAIN_MS)
+        return sim
+
+    def compare_pit_timings(self, row, laps_ahead=None):
+        """
+        Fast "what if" comparison: win probability for PIT NOW vs PIT IN N LAPS,
+        side by side. Deliberately terse (short labels, single numbers) --
+        designed to be read in a couple of seconds during an actual race.
+        """
+        if laps_ahead is None:
+            laps_ahead = self.PIT_TIMING_LAPS
+        current = self._win_prob(row)
+        options = []
+        for n in laps_ahead:
+            if int(n) == 0:
+                sim_row, label = self.simulate_pit_now(row), "PIT NOW"
+            else:
+                sim_row, label = self.simulate_pit_in_n_laps(row, int(n)), f"PIT IN {int(n)}"
+            prob = self._win_prob(sim_row)
+            options.append({
+                "label": label,
+                "laps_from_now": int(n),
+                "win_probability": round(prob, 4),
+                "change_points": round((prob - current) * 100, 1),
+            })
+        best = max(options, key=lambda o: o["win_probability"])
+        return {
+            "current_win_probability": round(current, 4),
+            "options": options,
+            "best_option_label": best["label"],
+        }
+
+    def simulate_what_if(self, row, actions):
+        """
+        Interactive "what if I do this right now" -- one or more actions,
+        combined on top of each other (e.g. pit + push). Raises ValueError on
+        empty/unknown actions (the API turns that into a 400).
+
+        Returns a terse verdict like 'PIT+PUSH: 68% -> 75% (+7%)' plus the
+        numbers behind it. Honesty labels live in per_action_notes.
+        """
+        if isinstance(actions, str):
+            actions = [a.strip() for a in actions.split(",") if a.strip()]
+        actions = [str(a).strip().lower() for a in actions if str(a).strip()]
+        if not actions:
+            raise ValueError("No actions provided. Valid actions: pit, push, attack")
+        unknown = [a for a in actions if a not in self.ACTION_SIMULATORS]
+        if unknown:
+            raise ValueError(
+                f"Unknown action(s): {unknown}. Valid actions: {sorted(self.ACTION_SIMULATORS)}"
+            )
+
+        current = self._win_prob(row)
+        sim_row = row.copy()
+        for action in actions:
+            sim_row = getattr(self, self.ACTION_SIMULATORS[action])(sim_row)
+        simulated = self._win_prob(sim_row)
+
+        cur_pct, sim_pct = round(current * 100), round(simulated * 100)
+        label = "+".join(a.upper() for a in actions)
+        return {
+            "verdict": f"{label}: {cur_pct}% -> {sim_pct}% ({sim_pct - cur_pct:+d}%)",
+            "actions_applied": actions,
+            "current_win_probability": round(current, 4),
+            "simulated_win_probability": round(simulated, 4),
+            "change_points": round((simulated - current) * 100, 1),
+            "per_action_notes": {a: self.ACTION_NOTES[a] for a in actions},
+        }
+
+    # ===================== end PHASE A =====================
 
     def _tire_age_ratio(self, row):
         """Prefer the precomputed column; fall back to computing it if missing."""
@@ -405,3 +559,8 @@ if __name__ == "__main__":
               f"tire_age_ratio={result['tire_age_ratio']} -> {result['pit_recommendation']} "
               f"(driver pit on the NEXT lap in reality)")
     print(f"\n{correct}/8 correctly flagged a pit as due, on the lap right before a real pit stop.")
+
+    print("\n=== Test 3 (Phase A): pit timing comparison + combined what-if ===")
+    row = pre_pit_rows.iloc[0] if len(pre_pit_rows) > 0 else random_sample.iloc[0]
+    print("Pit timings:", engine.compare_pit_timings(row))
+    print("What-if (pit+push):", engine.simulate_what_if(row, ["pit", "push"]))
