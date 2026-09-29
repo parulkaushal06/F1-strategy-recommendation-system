@@ -6,7 +6,7 @@ import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
-import { api, type RaceSummary, type DriverSummary, type StrategyResponse } from "@/lib/api";
+import { api, type RaceSummary, type DriverSummary, type StrategyResponse, type WhatIfAction, type WhatIfResponse } from "@/lib/api";
 
 const TEAM_COLORS: Record<string, string> = {
   "Red Bull": "#2246A8",
@@ -42,6 +42,10 @@ function StrategyDashboardInner() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [initializedFromQuery, setInitializedFromQuery] = useState(false);
+  const [whatIfActions, setWhatIfActions] = useState<WhatIfAction[]>([]);
+  const [whatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
+  const [whatIfLoading, setWhatIfLoading] = useState(false);
+  const [whatIfError, setWhatIfError] = useState<string | null>(null);
 
   // Seasons, once
   useEffect(() => {
@@ -97,6 +101,22 @@ function StrategyDashboardInner() {
     return () => clearTimeout(handle);
   }, [raceId, driverId, lap]);
 
+  // What-if simulation: refetch when selected actions or race state change
+  useEffect(() => {
+    if (raceId == null || driverId == null || whatIfActions.length === 0) {
+      setWhatIfResult(null);
+      return;
+    }
+    setWhatIfLoading(true);
+    const handle = setTimeout(() => {
+      api.whatIf(raceId, driverId, lap, whatIfActions)
+        .then((res) => { setWhatIfResult(res); setWhatIfError(null); })
+        .catch((e) => { setWhatIfError(String(e.message ?? e)); setWhatIfResult(null); })
+        .finally(() => setWhatIfLoading(false));
+    }, 120);
+    return () => clearTimeout(handle);
+  }, [raceId, driverId, lap, whatIfActions]);
+
   const driver = useMemo(() => drivers.find((d) => d.driverId === driverId), [drivers, driverId]);
   const circuit = useMemo(() => (data ? getCircuitData(data.meta.circuitName) : null), [data]);
 
@@ -114,6 +134,12 @@ function StrategyDashboardInner() {
       })
       .join(" ");
   }, [data]);
+
+  const toggleWhatIfAction = (action: WhatIfAction) => {
+    setWhatIfActions((prev) =>
+      prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
+    );
+  };
 
   return (
     <>
@@ -277,6 +303,58 @@ function StrategyDashboardInner() {
                 {data.current.simulatedPitNow.probabilityChange >= 0 ? "+" : ""}{data.current.simulatedPitNow.probabilityChange} pts
               </span>)
               <div className="text-[11px] text-[color:var(--ink-muted)] mt-2">{data.current.simulatedPitNow.note}</div>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
+        <div className="card p-6">
+          <div className="eyebrow mb-2">WHAT IF — PICK ACTIONS, GET A 2-SECOND VERDICT</div>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {(["pit", "push", "attack"] as WhatIfAction[]).map((action) => {
+              const active = whatIfActions.includes(action);
+              return (
+                <button
+                  key={action}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => toggleWhatIfAction(action)}
+                  className="btn !py-2 uppercase tracking-wide"
+                  style={active ? { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" } : undefined}
+                >
+                  {action}
+                </button>
+              );
+            })}
+          </div>
+
+          {whatIfLoading && <div className="text-[12px] text-[color:var(--ink-muted)] mt-3">simulating…</div>}
+          {whatIfError && (
+            <div className="text-[12px] mt-3" style={{ color: "var(--accent)" }}>{whatIfError}</div>
+          )}
+
+          {whatIfResult && !whatIfLoading && (
+            <div className="mt-4">
+              <div
+                className="mono text-[22px]"
+                style={{ color: whatIfResult.changePoints >= 0 ? "var(--status-teal)" : "var(--accent)" }}
+              >
+                {whatIfResult.verdict}
+              </div>
+              <div className="flex flex-col gap-1 mt-3">
+                {Object.entries(whatIfResult.perActionNotes).map(([action, note]) => (
+                  <div key={action} className="text-[11px] text-[color:var(--ink-muted)]">
+                    {action.toUpperCase()}: {note}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {!whatIfResult && !whatIfLoading && !whatIfError && (
+            <div className="text-[12px] text-[color:var(--ink-muted)] mt-3">
+              Click one or more actions — e.g. PIT + PUSH — to see the win-probability verdict for this exact lap.
             </div>
           )}
         </div>

@@ -142,8 +142,9 @@ class StrategyEngine:
     # grounded in real average pit-loss data. "push" and "attack" are
     # clearly-labeled ILLUSTRATIVE estimates -- no public dataset quantifies
     # the real benefit of pushing pace or an overtake attempt, so those
-    # numbers are assumptions, not measurements. Every response carries
-    # per_action_notes so the UI can show that label honestly.
+    # numbers are assumptions, not measurements. The verdict line therefore
+    # ALWAYS states the magnitude it assumed (see _assumption_text), so the
+    # reader can judge the number, not just see it.
     # =====================================================================
 
     PUSH_PACE_GAIN_MS = 150        # illustrative per-lap gain when pushing
@@ -161,6 +162,21 @@ class StrategyEngine:
         "push": "illustrative estimate -- no real data for pace-change benefit",
         "attack": "illustrative estimate -- no real data for overtake benefit",
     }
+
+    def _assumption_text(self, action):
+        """
+        Short magnitude string shown in the verdict line: the number this
+        action assumes. 'pit' reports the real median pit cost being charged;
+        'push'/'attack' report their illustrative magnitudes.
+        """
+        if action == "pit":
+            cost_s = (self.avg_pit_loss_ms if self.avg_pit_loss_ms is not None else 22000) / 1000.0
+            return f"pit cost ~{cost_s:.1f}s"
+        if action == "push":
+            return f"assumes +{self.PUSH_PACE_GAIN_MS}ms/lap pace gain"
+        if action == "attack":
+            return f"assumes {self.ATTACK_GAP_GAIN_MS}ms gap closure"
+        return ""
 
     def _win_prob(self, row):
         """Win probability (0-1) for one row (Series or 1-row DataFrame)."""
@@ -246,8 +262,10 @@ class StrategyEngine:
         combined on top of each other (e.g. pit + push). Raises ValueError on
         empty/unknown actions (the API turns that into a 400).
 
-        Returns a terse verdict like 'PIT+PUSH: 68% -> 75% (+7%)' plus the
-        numbers behind it. Honesty labels live in per_action_notes.
+        The verdict states the magnitude each action assumed, e.g.:
+            ATTACK (assumes 800ms gap closure): 4% -> 11% (+7%)
+            PIT+PUSH (pit cost ~22.0s · assumes +150ms/lap pace gain): 68% -> 75% (+7%)
+        Honesty labels live in per_action_notes.
         """
         if isinstance(actions, str):
             actions = [a.strip() for a in actions.split(",") if a.strip()]
@@ -268,16 +286,21 @@ class StrategyEngine:
 
         cur_pct, sim_pct = round(current * 100), round(simulated * 100)
         label = "+".join(a.upper() for a in actions)
+        assumption_tag = " · ".join(self._assumption_text(a) for a in actions)
         return {
-            "verdict": f"{label}: {cur_pct}% -> {sim_pct}% ({sim_pct - cur_pct:+d}%)",
+            "verdict": f"{label} ({assumption_tag}): {cur_pct}% -> {sim_pct}% ({sim_pct - cur_pct:+d}%)",
             "actions_applied": actions,
             "current_win_probability": round(current, 4),
             "simulated_win_probability": round(simulated, 4),
             "change_points": round((simulated - current) * 100, 1),
-            "per_action_notes": {a: self.ACTION_NOTES[a] for a in actions},
+            "per_action_notes": {
+                a: f"{self.ACTION_NOTES[a]} [{self._assumption_text(a)}]"
+                for a in actions
+            },
         }
 
     # ===================== end PHASE A =====================
+
 
     def _tire_age_ratio(self, row):
         """Prefer the precomputed column; fall back to computing it if missing."""
