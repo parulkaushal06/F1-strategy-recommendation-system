@@ -111,6 +111,17 @@ export interface SimulateResponse {
   bestOptionLabel: string;
 }
 
+export type WhatIfAction = "pit" | "push" | "attack";
+
+export interface WhatIfResponse {
+  verdict: string;                        // e.g. "PIT+PUSH: 68% -> 75% (+7%)"
+  actionsApplied: WhatIfAction[];
+  currentWinProbability: number;          // 0-1 fraction
+  simulatedWinProbability: number;        // 0-1 fraction
+  changePoints: number;                   // percentage points, e.g. +7.0
+  perActionNotes: Record<string, string>; // honesty labels per action
+}
+
 export const api = {
   seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json()),
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
@@ -131,5 +142,14 @@ export const api = {
         winProbability: o.win_probability,
         changePoints: o.change_points,
       })),
+    })),
+  whatIf: (raceId: number, driverId: number, lap: number, actions: WhatIfAction[]): Promise<WhatIfResponse> =>
+    getJSON("/api/simulate/what-if", { raceId, driverId, lap, actions: actions.join(",") }).then((raw: any) => ({
+      verdict: raw.verdict,
+      actionsApplied: raw.actions_applied,
+      currentWinProbability: raw.current_win_probability,
+      simulatedWinProbability: raw.simulated_win_probability,
+      changePoints: raw.change_points,
+      perActionNotes: raw.per_action_notes ?? {},
     })),
 };
