@@ -37,6 +37,7 @@ from fastapi.responses import JSONResponse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.strategy.recommend_action import StrategyEngine
+from src.features.explain import build_explainer, explain_prediction
 
 logging.basicConfig(
     level=logging.INFO,
@@ -109,6 +110,12 @@ try:
         DRIVER_NAMES = {d["driverId"]: f'{d["forename"]} {d["surname"]}' for d in csv.DictReader(f)}
 except Exception:
     logger.exception("Startup failed while loading raw Ergast lookup CSVs.")
+    raise
+
+try:
+    explainer = build_explainer(raw_model)
+except Exception:
+    logger.exception("Failed to build SHAP explainer at startup.")
     raise
 
 logger.info("RACECRAFT API ready: %d rows, %d features, %d races, %d drivers.",
@@ -322,6 +329,53 @@ def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: 
         "field": field,
         "featureImportance": feature_importance,
     }
+
+
+@app.get("/api/simulate/pit-timings")
+def simulate_pit_timings(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: int = LapParam()):
+    """
+    Fast "what if" comparison: win probability for pitting now vs. pitting
+    in a few laps, side by side. Deliberately terse (short labels, single
+    numbers) -- designed to be read in a couple of seconds during an actual
+    race, not as a detailed report. See StrategyEngine.compare_pit_timings().
+    """
+    _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
+    return engine.compare_pit_timings(current_row)
+
+
+@app.get("/api/explain")
+def explain(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: int = LapParam()):
+    """
+    Per-prediction SHAP explanation: which factors pushed this specific
+    driver's win probability up or down, and by how much. See
+    src/features/explain.py for why this explains the RAW model's reasoning
+    while still reporting the CALIBRATED probability as the headline number.
+    """
+    _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
+    return explain_prediction(current_row, explainer, model, feature_cols)
+
+
+@app.get("/api/simulate/what-if")
+def simulate_what_if(
+    raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: int = LapParam(),
+    actions: str = Query(..., description="Comma-separated: pit, push, attack (any combination)"),
+):
+    """
+    Interactive "what if I do this right now" tool: a driver/engineer picks
+    one or more actions and gets a fast, few-word verdict -- not a report,
+    since real race decisions happen in seconds. See the honesty note on
+    StrategyEngine's ACTION_SIMULATORS in recommend_action.py: "pit" is
+    grounded in real average pit-loss data, "push" and "attack" are
+    clearly-labeled illustrative estimates.
+
+    Example: /api/simulate/what-if?raceId=1099&driverId=830&lap=20&actions=push,attack
+    """
+    action_list = [a.strip() for a in actions.split(",") if a.strip()]
+    _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
+    try:
+        return engine.simulate_what_if(current_row, action_list)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
 
 
 @app.get("/api/compare")

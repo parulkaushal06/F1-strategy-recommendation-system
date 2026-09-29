@@ -98,6 +98,19 @@ export interface RaceInfo {
   totalLaps: number;
 }
 
+export interface PitTimingOption {
+  label: string;
+  lapsFromNow: number;
+  winProbability: number;
+  changePoints: number;
+}
+
+export interface SimulateResponse {
+  currentWinProbability: number;
+  options: PitTimingOption[];
+  bestOptionLabel: string;
+}
+
 export const api = {
   seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json()),
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
@@ -108,4 +121,15 @@ export const api = {
     getJSON("/api/strategy", { raceId, driverId, lap }),
   compare: (raceId: number, driverAId: number, driverBId: number, lap: number): Promise<CompareResponse> =>
     getJSON("/api/compare", { raceId, driverAId, driverBId, lap }),
+  simulate: (raceId: number, driverId: number, lap: number): Promise<SimulateResponse> =>
+    getJSON("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw: any) => ({
+      currentWinProbability: raw.current_win_probability,
+      bestOptionLabel: raw.best_option_label,
+      options: raw.options.map((o: any) => ({
+        label: o.label,
+        lapsFromNow: o.laps_from_now,
+        winProbability: o.win_probability,
+        changePoints: o.change_points,
+      })),
+    })),
 };

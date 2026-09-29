@@ -124,3 +124,54 @@ def test_unhandled_error_does_not_leak_stack_trace(api_client, monkeypatch):
     assert "Traceback" not in res.text
     assert "simulated unexpected failure" not in res.text
     assert res.json()["detail"] == "Something went wrong processing that request. Please try again."
+
+def test_simulate_returns_pit_timing_options(api_client):
+    res = api_client.get('/api/simulate/pit-timings', params={'raceId': 9001, 'driverId': 101, 'lap': 3})
+    assert res.status_code == 200
+    body = res.json()
+    assert 'current_win_probability' in body
+    assert len(body['options']) == 4
+    labels = [o['label'] for o in body['options']]
+    assert labels == ['PIT NOW', 'PIT IN 3', 'PIT IN 5', 'PIT IN 8']
+    assert 'best_option_label' in body
+
+
+def test_simulate_unknown_driver_returns_404(api_client):
+    res = api_client.get('/api/simulate/pit-timings', params={'raceId': 9001, 'driverId': 99999, 'lap': 3})
+    assert res.status_code == 404
+
+
+def test_simulate_pit_timings_endpoint(api_client):
+    res = api_client.get('/api/simulate/pit-timings', params={'raceId': 9001, 'driverId': 101, 'lap': 3})
+    assert res.status_code == 200
+    body = res.json()
+    assert 'options' in body
+    assert 'bestOptionLabel' in body or 'best_option_label' in body
+
+
+def test_simulate_what_if_endpoint_pit_only(api_client):
+    res = api_client.get('/api/simulate/what-if', params={'raceId': 9001, 'driverId': 101, 'lap': 3, 'actions': 'pit'})
+    assert res.status_code == 200
+    body = res.json()
+    assert 'verdict' in body
+    assert body['actions_applied'] == ['pit']
+
+
+def test_simulate_what_if_combined_actions(api_client):
+    res = api_client.get('/api/simulate/what-if', params={'raceId': 9001, 'driverId': 101, 'lap': 3, 'actions': 'push,attack'})
+    assert res.status_code == 200
+    body = res.json()
+    assert body['actions_applied'] == ['push', 'attack']
+
+
+def test_simulate_what_if_rejects_unknown_action(api_client):
+    res = api_client.get('/api/simulate/what-if', params={'raceId': 9001, 'driverId': 101, 'lap': 3, 'actions': 'teleport'})
+    assert res.status_code == 400
+
+
+def test_old_shared_simulate_path_no_longer_exists(api_client):
+    """Regression guard: the old ambiguous /api/simulate (no subpath) should
+    404, confirming the two endpoints are genuinely separate now, not one
+    silently shadowing the other."""
+    res = api_client.get('/api/simulate', params={'raceId': 9001, 'driverId': 101, 'lap': 3})
+    assert res.status_code == 404

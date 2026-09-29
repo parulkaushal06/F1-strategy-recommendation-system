@@ -10,3 +10,4 @@ joblib
 pyyaml
 fastapi
 uvicorn[standard]
+shap
