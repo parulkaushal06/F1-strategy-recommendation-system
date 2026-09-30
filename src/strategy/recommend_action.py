@@ -246,19 +246,6 @@ class StrategyEngine:
             sim["gap_to_ahead_ms"] = max(0, (row.get("gap_to_ahead_ms", 0) or 0) - self.ATTACK_GAP_GAIN_MS)
         return sim
 
-        def _simulate_action_drs(self, row):
-        
-            if row.get("position", None) == 1:
-                raise ValueError(
-                "DRS impossible while leading: there is no car ahead to be within one second of."
-            )
-            sim = row.copy()
-            sim["drs_zone_proxy"] = 1
-            return sim
-        
-
-
-
     def _simulate_action_overtake(self, row):
         """
         OVERTAKE NOW: swap places with the car ahead, using THIS ROW's own real

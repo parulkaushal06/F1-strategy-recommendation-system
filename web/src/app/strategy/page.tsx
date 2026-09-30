@@ -21,6 +21,14 @@ const TEAM_COLORS: Record<string, string> = {
   Haas: "#B7B7B7",
 };
 
+const WHAT_IF_ACTION_DOTS: Record<WhatIfAction, string> = {
+  pit: "var(--status-amber)",
+  push: "var(--status-teal)",
+  attack: "var(--status-purple)",
+  drs: "#4DD9C4",
+  overtake: "var(--accent)",
+};
+
 function statusColor(kind: "pit" | "drs" | "ers" | "craft", text: string) {
   if (kind === "pit") return text.startsWith("PIT NOW") ? "var(--accent)" : text.startsWith("CONSIDER") ? "var(--status-amber)" : "var(--status-teal)";
   if (kind === "drs") return text.includes("AVAILABLE") ? "var(--status-teal)" : "var(--ink-muted)";
@@ -157,6 +165,12 @@ function StrategyDashboardInner() {
     });
   }, [data?.meta.position, data?.current.drsRecommendation]);
 
+  const isLeader = data?.meta.position === 1;
+  const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
+  const isActionDisabled = (action: WhatIfAction) =>
+    (action === "overtake" && isLeader) ||
+    (action === "drs" && (isLeader || drsAlreadyOn));
+
   return (
     <>
       <Nav active="/strategy" />
@@ -236,7 +250,6 @@ function StrategyDashboardInner() {
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2">
             <div className="display text-[56px] sm:text-[72px] md:text-[84px] leading-none">
               {data ? (data.current.winProbability < 1 ? data.current.winProbability.toFixed(1) : Math.round(data.current.winProbability)) : "—"}
-
               <span className="text-[28px] sm:text-[32px] md:text-[36px] align-top">%</span>
             </div>
             <div className="pill mb-3">
@@ -312,29 +325,18 @@ function StrategyDashboardInner() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
         <div className="card p-6">
-          <div className="eyebrow mb-2">MODEL CONTEXT — WHAT IF THIS DRIVER PITTED THIS LAP?</div>
-          {data && (
-            <div className="text-[14px] text-[color:var(--ink-secondary)] mt-2">
-              Simulated win probability if pitting now: <span className="text-[color:var(--ink-primary)] mono">{data.current.simulatedPitNow.winProbability}%</span>{" "}
-              (change: <span className="mono" style={{ color: data.current.simulatedPitNow.probabilityChange >= 0 ? "var(--status-teal)" : "var(--accent)" }}>
-                {data.current.simulatedPitNow.probabilityChange >= 0 ? "+" : ""}{data.current.simulatedPitNow.probabilityChange} pts
-              </span>)
-              <div className="text-[11px] text-[color:var(--ink-muted)] mt-2">{data.current.simulatedPitNow.note}</div>
-            </div>
-          )}
-        </div>
-      </section>
+          <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+            <div className="eyebrow">WHAT IF SIMULATOR — TEST YOUR OWN CALL</div>
+            {data && (
+              <span className="pill"><span className="dot" />LAP {lap} · P{data.meta.position}</span>
+            )}
+          </div>
 
-      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
-        <div className="card p-6">
-          <div className="eyebrow mb-2">WHAT IF — PICK ACTIONS, GET A 2-SECOND VERDICT</div>
-          <div className="flex flex-wrap gap-2 mt-2">
+          {/* Action chips */}
+          <div className="flex flex-wrap gap-2 mb-6">
             {(["pit", "push", "attack", "drs", "overtake"] as WhatIfAction[]).map((action) => {
               const active = whatIfActions.includes(action);
-              const isLeader = data?.meta.position === 1;
-              const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
-              const drsImpossible = action === "drs" && (isLeader || drsAlreadyOn);
-              const disabled = (action === "overtake" && isLeader) || drsImpossible;
+              const disabled = isActionDisabled(action);
               return (
                 <button
                   key={action}
@@ -351,44 +353,73 @@ function StrategyDashboardInner() {
                           : undefined
                   }
                   onClick={() => toggleWhatIfAction(action)}
-                  className="btn !py-2 uppercase tracking-wide"
+                  className="btn !py-2 uppercase tracking-wide inline-flex items-center gap-2"
                   style={{
                     ...(active ? { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" } : {}),
-                    ...(disabled ? { opacity: 0.4, cursor: "not-allowed" } : {}),
+                    ...(disabled ? { opacity: 0.35, cursor: "not-allowed" } : {}),
                   }}
                 >
+                  <i className="w-2 h-2 rounded-full inline-block" style={{ background: active ? "#fff" : WHAT_IF_ACTION_DOTS[action] }} />
                   {action}
                 </button>
               );
             })}
           </div>
 
-          {whatIfLoading && <div className="text-[12px] text-[color:var(--ink-muted)] mt-3">simulating…</div>}
-          {whatIfError && (
-            <div className="text-[12px] mt-3" style={{ color: "var(--accent)" }}>{whatIfError}</div>
-          )}
+          {whatIfLoading && <div className="text-[12px] text-[color:var(--ink-muted)] mt-2">simulating…</div>}
+          {whatIfError && <div className="text-[13px] mt-2" style={{ color: "var(--accent)" }}>{whatIfError}</div>}
 
           {whatIfResult && !whatIfLoading && (
-            <div className="mt-4">
-              <div
-                className="mono text-[22px]"
-                style={{ color: whatIfResult.changePoints >= 0 ? "var(--status-teal)" : "var(--accent)" }}
-              >
-                {whatIfResult.verdict}
+            <>
+              {/* Big NOW -> IF YOU DO comparison */}
+              <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8 max-w-[560px]">
+                <div>
+                  <div className="eyebrow mb-1">NOW</div>
+                  <div className="display text-[40px] sm:text-[48px] leading-none">
+                    {(whatIfResult.currentWinProbability * 100).toFixed(1)}
+                    <span className="text-[20px] align-top">%</span>
+                  </div>
+                </div>
+                <div className="mono text-[24px] text-[color:var(--ink-muted)]">→</div>
+                <div>
+                  <div className="eyebrow mb-1">IF YOU DO: {whatIfResult.actionsApplied.join("+").toUpperCase()}</div>
+                  <div
+                    className="display text-[40px] sm:text-[48px] leading-none"
+                    style={{ color: whatIfResult.changePoints >= 0 ? "var(--status-teal)" : "var(--accent)" }}
+                  >
+                    {(whatIfResult.simulatedWinProbability * 100).toFixed(1)}
+                    <span className="text-[20px] align-top">%</span>
+                  </div>
+                </div>
               </div>
-              <div className="flex flex-col gap-1 mt-3">
+
+              {/* Delta badge */}
+              <div className="mt-4">
+                <span
+                  className="pill mono"
+                  style={{
+                    color: whatIfResult.changePoints >= 0 ? "var(--status-teal)" : "var(--accent)",
+                    borderColor: whatIfResult.changePoints >= 0 ? "var(--status-teal)" : "var(--accent)",
+                  }}
+                >
+                  {whatIfResult.changePoints >= 0 ? "+" : ""}{whatIfResult.changePoints.toFixed(1)} pts win probability
+                </span>
+              </div>
+
+              {/* Honesty footnotes */}
+              <div className="hairline-top mt-5 pt-3 flex flex-col gap-1">
                 {Object.entries(whatIfResult.perActionNotes).map(([action, note]) => (
                   <div key={action} className="text-[11px] text-[color:var(--ink-muted)]">
-                    {action.toUpperCase()}: {note}
+                    {action.toUpperCase()} — {note}
                   </div>
                 ))}
               </div>
-            </div>
+            </>
           )}
 
           {!whatIfResult && !whatIfLoading && !whatIfError && (
-            <div className="text-[12px] text-[color:var(--ink-muted)] mt-3">
-              Click one or more actions — e.g. DRS + OVERTAKE — to test your own hypothesis for this exact lap.
+            <div className="text-[13px] text-[color:var(--ink-secondary)] mt-2">
+              Pick one or more actions — e.g. <span className="mono">DRS + OVERTAKE</span> — to test your own hypothesis for this exact race state. Impossible calls (DRS while leading) are disabled, not faked.
             </div>
           )}
         </div>
