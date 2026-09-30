@@ -117,9 +117,18 @@ def add_strategy_proxy_flags(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.sort_values(["raceId", "lap", "position"])
     df["gap_to_ahead_ms"] = df.groupby(["raceId", "lap"])["gap_to_leader_ms"].diff().fillna(0)
-    df["drs_zone_proxy"] = (df["gap_to_ahead_ms"].abs() <= DRS_GAP_THRESHOLD_MS).astype(int)
+    # DRS is impossible for the leader: gap_to_ahead_ms == 0 for P1 is a data
+    # artifact (nothing to diff against), not a real sub-1.25s gap. Require a
+    # strictly positive gap so the leader (and any zero-gap artifact rows)
+    # never get the flag.
+    df["drs_zone_proxy"] = (
+        (df["gap_to_ahead_ms"] > 0)
+        & (df["gap_to_ahead_ms"] <= DRS_GAP_THRESHOLD_MS)
+    ).astype(int)
     df["pit_window_proxy"] = df["laps_since_last_pit"].between(15, 30).astype(int)
-    return df
+    return df   # <-- YE LINE missing thi
+
+
 
 
 def build_features() -> pd.DataFrame:

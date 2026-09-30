@@ -83,8 +83,16 @@ async function getJSON<T>(path: string, params: Record<string, string | number>)
   const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])));
   const res = await fetch(`${API_URL}${path}?${qs}`);
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(`${path} failed: ${res.status} ${body}`);
+    // Prefer the API's human-readable `detail` (e.g. "Cannot overtake: ...")
+    // over a raw path+status+JSON blob.
+    let detail = "";
+    try {
+      const parsed = JSON.parse(await res.text());
+      detail = typeof parsed.detail === "string" ? parsed.detail : "";
+    } catch {
+      detail = "";
+    }
+    throw new Error(detail || `${path} failed: ${res.status}`);
   }
   return res.json();
 }
@@ -111,7 +119,7 @@ export interface SimulateResponse {
   bestOptionLabel: string;
 }
 
-export type WhatIfAction = "pit" | "push" | "attack";
+export type WhatIfAction = "pit" | "push" | "attack" | "drs" | "overtake";
 
 export interface WhatIfResponse {
   verdict: string;                        // e.g. "PIT+PUSH: 68% -> 75% (+7%)"

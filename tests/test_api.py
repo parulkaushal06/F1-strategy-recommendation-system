@@ -175,3 +175,29 @@ def test_old_shared_simulate_path_no_longer_exists(api_client):
     silently shadowing the other."""
     res = api_client.get('/api/simulate', params={'raceId': 9001, 'driverId': 101, 'lap': 3})
     assert res.status_code == 404
+
+
+def test_simulate_what_if_drs_action(api_client):
+    strat = api_client.get("/api/strategy?raceId=9001&driverId=101&lap=3").json()
+    resp = api_client.get("/api/simulate/what-if?raceId=9001&driverId=101&lap=3&actions=drs")
+    if strat["meta"]["position"] == 1:
+        # DRS is impossible while leading -> clean 400 with an explanatory message
+        assert resp.status_code == 400
+        assert "drs" in resp.json()["detail"].lower()
+    else:
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["actions_applied"] == ["drs"]
+        assert "verdict" in body
+
+
+
+def test_simulate_what_if_overtake_respects_leadership(api_client):
+    strat = api_client.get("/api/strategy?raceId=9001&driverId=101&lap=3").json()
+    resp = api_client.get("/api/simulate/what-if?raceId=9001&driverId=101&lap=3&actions=overtake")
+    if strat["meta"]["position"] == 1:
+        assert resp.status_code == 400
+        assert "leading" in resp.json()["detail"].lower()
+    else:
+        assert resp.status_code == 200
+        assert resp.json()["actions_applied"] == ["overtake"]

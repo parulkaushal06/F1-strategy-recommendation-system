@@ -47,11 +47,15 @@ for the next lap. See that file's `laps_since_pit()` function.
 PHASE A: what-if simulation layer (see the PHASE A section inside the class).
 
 compare_pit_timings() -- PIT NOW vs PIT IN N LAPS side-by-side.
-simulate_what_if()    -- one or more actions combined (pit / push / attack).
+simulate_what_if()    -- one or more actions combined, so a driver/engineer
+                         can test their OWN hypotheses, not just the model's
+                         presets: pit / push / attack / drs / overtake.
 
 Honesty standard (same as the DRS proxy): "pit" simulations are grounded in
-real average pit-loss data; "push" and "attack" are clearly-labeled
-ILLUSTRATIVE estimates, labeled as such in every response.
+real average pit-loss data; "drs" only flips the flag the model was trained
+on (no invented magnitude); "overtake" uses the row's own real gaps;
+"push" and "attack" are clearly-labeled ILLUSTRATIVE estimates, with the
+assumed magnitude stated in every verdict line.
 --------------------------------------------------------------------------
 
 Usage:
@@ -138,13 +142,18 @@ class StrategyEngine:
     # =====================================================================
     # PHASE A: what-if simulation layer
     #
+    # The point of this layer: let a human expert (driver/race engineer)
+    # test THEIR OWN hypotheses -- "what if I had DRS right now?", "what if
+    # the pass completes?" -- instead of only hearing the model's presets.
+    #
     # Honesty note (same standard as the DRS proxy): "pit" simulations are
-    # grounded in real average pit-loss data. "push" and "attack" are
-    # clearly-labeled ILLUSTRATIVE estimates -- no public dataset quantifies
-    # the real benefit of pushing pace or an overtake attempt, so those
-    # numbers are assumptions, not measurements. The verdict line therefore
-    # ALWAYS states the magnitude it assumed (see _assumption_text), so the
-    # reader can judge the number, not just see it.
+    # grounded in real average pit-loss data. "drs" only flips the flag the
+    # model was trained on -- the model answers with its own learned weight,
+    # no magnitude is invented. "overtake" recomputes gaps from THIS row's
+    # real data. "push" and "attack" remain clearly-labeled ILLUSTRATIVE
+    # estimates. The verdict line ALWAYS states the magnitude it assumed
+    # (see _assumption_text), so the reader can judge the number, not just
+    # see it.
     # =====================================================================
 
     PUSH_PACE_GAIN_MS = 150        # illustrative per-lap gain when pushing
@@ -156,18 +165,24 @@ class StrategyEngine:
         "pit": "simulate_pit_now",
         "push": "_simulate_action_push",
         "attack": "_simulate_action_attack",
+        "drs": "_simulate_action_drs",
+        "overtake": "_simulate_action_overtake",
     }
     ACTION_NOTES = {
         "pit": "grounded in real average pit-loss data",
         "push": "illustrative estimate -- no real data for pace-change benefit",
         "attack": "illustrative estimate -- no real data for overtake benefit",
+        "drs": "flips the DRS flag the model was trained on; the model answers with its own learned weight",
+        "overtake": "position swap computed from this row's own real gap data",
     }
 
     def _assumption_text(self, action):
         """
         Short magnitude string shown in the verdict line: the number this
         action assumes. 'pit' reports the real median pit cost being charged;
-        'push'/'attack' report their illustrative magnitudes.
+        'push'/'attack' report their illustrative magnitudes; 'drs' and
+        'overtake' state that they use the model's flag / the row's real gaps
+        rather than an invented number.
         """
         if action == "pit":
             cost_s = (self.avg_pit_loss_ms if self.avg_pit_loss_ms is not None else 22000) / 1000.0
@@ -176,6 +191,10 @@ class StrategyEngine:
             return f"assumes +{self.PUSH_PACE_GAIN_MS}ms/lap pace gain"
         if action == "attack":
             return f"assumes {self.ATTACK_GAP_GAIN_MS}ms gap closure"
+        if action == "drs":
+            return "enables DRS flag (model's own learned weight)"
+        if action == "overtake":
+            return "assumes pass completes; new gaps from this row's real gap data"
         return ""
 
     def _win_prob(self, row):
@@ -227,6 +246,53 @@ class StrategyEngine:
             sim["gap_to_ahead_ms"] = max(0, (row.get("gap_to_ahead_ms", 0) or 0) - self.ATTACK_GAP_GAIN_MS)
         return sim
 
+        def _simulate_action_drs(self, row):
+        
+            if row.get("position", None) == 1:
+                raise ValueError(
+                "DRS impossible while leading: there is no car ahead to be within one second of."
+            )
+            sim = row.copy()
+            sim["drs_zone_proxy"] = 1
+            return sim
+        
+
+
+
+    def _simulate_action_overtake(self, row):
+        """
+        OVERTAKE NOW: swap places with the car ahead, using THIS ROW's own real
+        gaps (no assumed magnitude): our gap_to_leader shrinks by the gap to the
+        car ahead, and we take their position. Raises ValueError when there is
+        nothing meaningful to overtake (leader, or missing gap data) so the UI
+        can explain instead of showing a fake number.
+        """
+        position = row.get("position", None)
+        gap_ahead = row.get("gap_to_ahead_ms", None)
+        if position is None or int(position) == 1:
+            raise ValueError("Cannot overtake: this driver is already leading (no car ahead).")
+        if gap_ahead is None or gap_ahead <= 0:
+            raise ValueError("Cannot overtake: no meaningful gap-to-car-ahead on this row.")
+        sim = row.copy()
+        sim["position"] = int(position) - 1
+        sim["gap_to_leader_ms"] = max(0, (row.get("gap_to_leader_ms", 0) or 0) - gap_ahead)
+        sim["gap_to_leader_s"] = sim["gap_to_leader_ms"] / 1000.0
+        # We took the car ahead's spot; the NEW gap to the car now ahead of us
+        # is unknown from this row alone. 0 matches the dataset's "leader" case
+        # (no meaningful car-ahead reading), not a fake number.
+        sim["gap_to_ahead_ms"] = 0
+        return sim
+
+    def _simulate_action_drs(self, row):
+            
+            if row.get("position", None) == 1:
+                raise ValueError(
+                    "DRS impossible while leading: there is no car ahead to be within one second of."
+                )
+            sim = row.copy()
+            sim["drs_zone_proxy"] = 1
+            return sim
+
     def compare_pit_timings(self, row, laps_ahead=None):
         """
         Fast "what if" comparison: win probability for PIT NOW vs PIT IN N LAPS,
@@ -259,19 +325,21 @@ class StrategyEngine:
     def simulate_what_if(self, row, actions):
         """
         Interactive "what if I do this right now" -- one or more actions,
-        combined on top of each other (e.g. pit + push). Raises ValueError on
-        empty/unknown actions (the API turns that into a 400).
+        combined on top of each other (e.g. pit + push, or drs + overtake).
+        Raises ValueError on empty/unknown actions (the API turns that into a
+        400), and on impossible scenarios like overtaking while leading.
 
         The verdict states the magnitude each action assumed, e.g.:
             ATTACK (assumes 800ms gap closure): 4% -> 11% (+7%)
-            PIT+PUSH (pit cost ~22.0s · assumes +150ms/lap pace gain): 68% -> 75% (+7%)
+            DRS (enables DRS flag): 30% -> 33% (+3%)
+            OVERTAKE (assumes pass completes): 11% -> 69% (+58%)
         Honesty labels live in per_action_notes.
         """
         if isinstance(actions, str):
             actions = [a.strip() for a in actions.split(",") if a.strip()]
         actions = [str(a).strip().lower() for a in actions if str(a).strip()]
         if not actions:
-            raise ValueError("No actions provided. Valid actions: pit, push, attack")
+            raise ValueError(f"No actions provided. Valid actions: {sorted(self.ACTION_SIMULATORS)}")
         unknown = [a for a in actions if a not in self.ACTION_SIMULATORS]
         if unknown:
             raise ValueError(
@@ -284,20 +352,21 @@ class StrategyEngine:
             sim_row = getattr(self, self.ACTION_SIMULATORS[action])(sim_row)
         simulated = self._win_prob(sim_row)
 
-        cur_pct, sim_pct = round(current * 100), round(simulated * 100)
+        cur_pct = round(current * 100, 1)
+        sim_pct = round(simulated * 100, 1)
+        delta = round((simulated - current) * 100, 1)
         label = "+".join(a.upper() for a in actions)
         assumption_tag = " · ".join(self._assumption_text(a) for a in actions)
         return {
-            "verdict": f"{label} ({assumption_tag}): {cur_pct}% -> {sim_pct}% ({sim_pct - cur_pct:+d}%)",
+            "verdict": f"{label} ({assumption_tag}): {cur_pct}% -> {sim_pct}% ({delta:+.1f}%)",
             "actions_applied": actions,
             "current_win_probability": round(current, 4),
             "simulated_win_probability": round(simulated, 4),
-            "change_points": round((simulated - current) * 100, 1),
-            "per_action_notes": {
-                a: f"{self.ACTION_NOTES[a]} [{self._assumption_text(a)}]"
-                for a in actions
-            },
+            "change_points": delta,
+            "per_action_notes": {a: self.ACTION_NOTES[a] for a in actions},
         }
+
+
 
     # ===================== end PHASE A =====================
 
@@ -383,7 +452,10 @@ class StrategyEngine:
         else:
             pit_recommendation = "STAY OUT (tires still fresh)"
 
-        drs_available = bool(row.get("drs_zone_proxy", 0) == 1)
+        # DRS is impossible for the leader: gap_to_ahead_ms == 0 for P1 is a
+        # data artifact, not a real sub-1.25s gap (see build_features.py).
+        drs_available = bool(row.get("drs_zone_proxy", 0) == 1) and row.get("position", None) != 1
+
 
         pace_delta = row.get("pace_delta_to_fastest_ms", 0) or 0
         ers_overtake_recommended = bool(drs_available and pace_delta > 300)
@@ -587,3 +659,15 @@ if __name__ == "__main__":
     row = pre_pit_rows.iloc[0] if len(pre_pit_rows) > 0 else random_sample.iloc[0]
     print("Pit timings:", engine.compare_pit_timings(row))
     print("What-if (pit+push):", engine.simulate_what_if(row, ["pit", "push"]))
+
+    print("\n=== Test 4 (Phase A): expert-hypothesis actions (drs / overtake) ===")
+    print("What-if (drs):", engine.simulate_what_if(row, ["drs"]))
+    try:
+        print("What-if (overtake):", engine.simulate_what_if(row, ["overtake"]))
+    except ValueError as e:
+        print(f"Overtake not applicable here (expected for the leader): {e}")
+    leader_row = df[df["position"] == 1].iloc[0]
+    try:
+        print("What-if (overtake as leader):", engine.simulate_what_if(leader_row, ["overtake"]))
+    except ValueError as e:
+        print(f"Overtake as leader correctly rejected: {e}")

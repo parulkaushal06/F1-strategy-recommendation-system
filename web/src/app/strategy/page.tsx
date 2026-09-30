@@ -105,6 +105,7 @@ function StrategyDashboardInner() {
   useEffect(() => {
     if (raceId == null || driverId == null || whatIfActions.length === 0) {
       setWhatIfResult(null);
+      setWhatIfError(null);
       return;
     }
     setWhatIfLoading(true);
@@ -140,6 +141,21 @@ function StrategyDashboardInner() {
       prev.includes(action) ? prev.filter((a) => a !== action) : [...prev, action]
     );
   };
+
+  // Drop actions that are physically impossible in the current race state:
+  // OVERTAKE while leading, DRS while leading, DRS when it is already active.
+  useEffect(() => {
+    const isLeader = data?.meta.position === 1;
+    const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
+    setWhatIfActions((prev) => {
+      const next = prev.filter((a) => {
+        if (a === "overtake" && isLeader) return false;
+        if (a === "drs" && (isLeader || drsAlreadyOn)) return false;
+        return true;
+      });
+      return next.length === prev.length ? prev : next;
+    });
+  }, [data?.meta.position, data?.current.drsRecommendation]);
 
   return (
     <>
@@ -219,7 +235,8 @@ function StrategyDashboardInner() {
           <div className="eyebrow mb-2">WIN PROBABILITY · LAP {lap}/{maxLap}</div>
           <div className="flex flex-wrap items-end gap-x-4 gap-y-2 mb-2">
             <div className="display text-[56px] sm:text-[72px] md:text-[84px] leading-none">
-              {data ? Math.round(data.current.winProbability) : "—"}
+              {data ? (data.current.winProbability < 1 ? data.current.winProbability.toFixed(1) : Math.round(data.current.winProbability)) : "—"}
+
               <span className="text-[28px] sm:text-[32px] md:text-[36px] align-top">%</span>
             </div>
             <div className="pill mb-3">
@@ -312,16 +329,33 @@ function StrategyDashboardInner() {
         <div className="card p-6">
           <div className="eyebrow mb-2">WHAT IF — PICK ACTIONS, GET A 2-SECOND VERDICT</div>
           <div className="flex flex-wrap gap-2 mt-2">
-            {(["pit", "push", "attack"] as WhatIfAction[]).map((action) => {
+            {(["pit", "push", "attack", "drs", "overtake"] as WhatIfAction[]).map((action) => {
               const active = whatIfActions.includes(action);
+              const isLeader = data?.meta.position === 1;
+              const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
+              const drsImpossible = action === "drs" && (isLeader || drsAlreadyOn);
+              const disabled = (action === "overtake" && isLeader) || drsImpossible;
               return (
                 <button
                   key={action}
                   type="button"
                   aria-pressed={active}
+                  disabled={disabled}
+                  title={
+                    action === "drs" && isLeader
+                      ? "DRS impossible while leading — no car ahead"
+                      : action === "drs" && drsAlreadyOn
+                        ? "DRS already active on this lap"
+                        : action === "overtake" && isLeader
+                          ? "Already leading — nothing to overtake"
+                          : undefined
+                  }
                   onClick={() => toggleWhatIfAction(action)}
                   className="btn !py-2 uppercase tracking-wide"
-                  style={active ? { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" } : undefined}
+                  style={{
+                    ...(active ? { background: "var(--accent)", borderColor: "var(--accent)", color: "#fff" } : {}),
+                    ...(disabled ? { opacity: 0.4, cursor: "not-allowed" } : {}),
+                  }}
                 >
                   {action}
                 </button>
@@ -354,7 +388,7 @@ function StrategyDashboardInner() {
 
           {!whatIfResult && !whatIfLoading && !whatIfError && (
             <div className="text-[12px] text-[color:var(--ink-muted)] mt-3">
-              Click one or more actions — e.g. PIT + PUSH — to see the win-probability verdict for this exact lap.
+              Click one or more actions — e.g. DRS + OVERTAKE — to test your own hypothesis for this exact lap.
             </div>
           )}
         </div>
