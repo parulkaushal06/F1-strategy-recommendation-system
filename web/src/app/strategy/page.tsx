@@ -6,7 +6,8 @@ import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
-import { api, type RaceSummary, type DriverSummary, type StrategyResponse, type WhatIfAction, type WhatIfResponse } from "@/lib/api";
+// EVAL: ModelMetrics type added
+import { api, type RaceSummary, type DriverSummary, type StrategyResponse, type WhatIfAction, type WhatIfResponse, type ModelMetrics } from "@/lib/api";
 
 const TEAM_COLORS: Record<string, string> = {
   "Red Bull": "#2246A8",
@@ -54,10 +55,20 @@ function StrategyDashboardInner() {
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
   const [whatIfLoading, setWhatIfLoading] = useState(false);
   const [whatIfError, setWhatIfError] = useState<string | null>(null);
+  // REPLAY: playback state. replaySpeed 1x = one lap every 3 seconds.
+  const [replaying, setReplaying] = useState(false);
+  const [replaySpeed, setReplaySpeed] = useState(1);
+  // EVAL: model evaluation metrics for the bottom strip (strip hides itself if unavailable)
+  const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
 
   // Seasons, once
   useEffect(() => {
     api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
+  }, []);
+
+  // EVAL: fetched once — optional content, fails silently when metrics aren't generated yet
+  useEffect(() => {
+    api.modelMetrics().then(setMetrics).catch(() => setMetrics(null));
   }, []);
 
   // Races for the selected season -> honor ?raceId= from a deep link once, then
@@ -96,6 +107,11 @@ function StrategyDashboardInner() {
     }).catch(() => setError("Failed to load lap range"));
   }, [raceId, driverId]);
 
+  // REPLAY: playback is tied to one race+driver run — stop it if the selection changes
+  useEffect(() => {
+    setReplaying(false);
+  }, [raceId, driverId]);
+
   // Debounced fetch of the actual strategy snapshot as the lap slider moves
   useEffect(() => {
     if (raceId == null || driverId == null) return;
@@ -109,13 +125,30 @@ function StrategyDashboardInner() {
     return () => clearTimeout(handle);
   }, [raceId, driverId, lap]);
 
-  // What-if simulation: refetch when selected actions or race state change
+  // REPLAY engine: advance one lap per tick, but only after the current lap's
+  // strategy response has settled — every data/arrival change resets this timer,
+  // so a slow server delays playback instead of piling up overlapping requests.
+  useEffect(() => {
+    if (!replaying || !data || error) return;
+    if (lap >= maxLap) {
+      setReplaying(false);
+      return;
+    }
+    const intervalMs = Math.round(3000 / replaySpeed);
+    const handle = setTimeout(() => setLap((prev) => Math.min(prev + 1, maxLap)), intervalMs);
+    return () => clearTimeout(handle);
+  }, [replaying, data, lap, maxLap, replaySpeed, error]);
+
+  // What-if simulation: refetch when selected actions or race state change.
+  // REPLAY: paused during playback (it would double the request rate per lap);
+  // it refetches once for the current lap as soon as replay stops.
   useEffect(() => {
     if (raceId == null || driverId == null || whatIfActions.length === 0) {
       setWhatIfResult(null);
       setWhatIfError(null);
       return;
     }
+    if (replaying) return;
     setWhatIfLoading(true);
     const handle = setTimeout(() => {
       api.whatIf(raceId, driverId, lap, whatIfActions)
@@ -124,7 +157,7 @@ function StrategyDashboardInner() {
         .finally(() => setWhatIfLoading(false));
     }, 120);
     return () => clearTimeout(handle);
-  }, [raceId, driverId, lap, whatIfActions]);
+  }, [raceId, driverId, lap, whatIfActions, replaying]);
 
   const driver = useMemo(() => drivers.find((d) => d.driverId === driverId), [drivers, driverId]);
   const circuit = useMemo(() => (data ? getCircuitData(data.meta.circuitName) : null), [data]);
@@ -143,6 +176,15 @@ function StrategyDashboardInner() {
       })
       .join(" ");
   }, [data]);
+
+  // REPLAY: lap-to-lap win probability delta (hidden when effectively flat)
+  const lapDelta = useMemo(() => {
+    if (!data) return null;
+    const prev = data.history.find((p) => p.lap === lap - 1);
+    if (!prev) return null;
+    const delta = data.current.winProbability - prev.winProb;
+    return Math.abs(delta) < 0.05 ? null : delta;
+  }, [data, lap]);
 
   const toggleWhatIfAction = (action: WhatIfAction) => {
     setWhatIfActions((prev) =>
@@ -206,21 +248,52 @@ function StrategyDashboardInner() {
             <input type="range" min={1} max={maxLap} value={lap} onChange={(e) => setLap(Number(e.target.value))} className="min-w-0 flex-1" />
             <span className="mono text-[14px] shrink-0 w-[64px] text-right">{lap}/{maxLap}</span>
           </div>
+          {/* REPLAY: playback controls — auto-advances laps over the historical data */}
+          <div className="flex items-center gap-2 shrink-0">
+            <button
+              type="button"
+              className="btn !py-2"
+              title="Auto-advance laps using historical race data"
+              onClick={() => {
+                if (!replaying && lap >= maxLap) setLap(1); // restart from lap 1 when finished
+                setReplaying((p) => !p);
+              }}
+            >
+              {replaying ? "⏸ Pause" : "▶ Replay"}
+            </button>
+            <select
+              className="btn !py-2"
+              value={replaySpeed}
+              onChange={(e) => setReplaySpeed(Number(e.target.value))}
+              title="Replay speed"
+            >
+              <option value={1}>1×</option>
+              <option value={2}>2×</option>
+              <option value={4}>4×</option>
+              <option value={8}>8×</option>
+            </select>
+          </div>
         </div>
         {error && <div className="mt-3 pill pill--accent">{error}</div>}
       </section>
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6 grid lg:grid-cols-[1fr_1fr] gap-6">
         <div className="card p-6">
-          <div className="flex items-baseline justify-between mb-4">
+          <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
+            {/* REPLAY: "RACE POSITION", not "LIVE" — this is historical data, honestly labeled */}
             <div className="eyebrow">
-              LIVE POSITION · LAP {lap} {data && `· P${data.meta.position}`}
+              RACE POSITION · LAP {lap} {data && `· P${data.meta.position}`}
             </div>
-            {driver && (
-              <span className="pill" style={{ color: TEAM_COLORS[driver.team], borderColor: TEAM_COLORS[driver.team] }}>
-                <span className="dot" />{driver.team}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {replaying && (
+                <span className="pill pill--amber"><span className="dot" />Historical replay {replaySpeed}×</span>
+              )}
+              {driver && (
+                <span className="pill" style={{ color: TEAM_COLORS[driver.team], borderColor: TEAM_COLORS[driver.team] }}>
+                  <span className="dot" />{driver.team}
+                </span>
+              )}
+            </div>
           </div>
           {circuit ? (
             <CircuitTrack
@@ -252,6 +325,13 @@ function StrategyDashboardInner() {
               {data ? (data.current.winProbability < 1 ? data.current.winProbability.toFixed(1) : Math.round(data.current.winProbability)) : "—"}
               <span className="text-[28px] sm:text-[32px] md:text-[36px] align-top">%</span>
             </div>
+            {/* REPLAY: how much this lap moved the probability */}
+            {lapDelta != null && (
+              <span className="pill mb-3" style={{ color: lapDelta >= 0 ? "var(--status-teal)" : "var(--accent)" }}>
+                <span className="dot" />
+                {lapDelta >= 0 ? "+" : ""}{lapDelta.toFixed(1)} pts vs last lap
+              </span>
+            )}
             <div className="pill mb-3">
               <span className="dot" />
               PIT URGENCY {data?.current.pitUrgencyScore ?? "—"}/100
@@ -425,7 +505,8 @@ function StrategyDashboardInner() {
         </div>
       </section>
 
-      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-16">
+      {/* EVAL: field table now ends with pb-6; the model evaluation strip is the closer */}
+      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
         <div className="card p-6">
           <div className="eyebrow mb-4">FIELD CONTEXT — LAP {lap} {loading && "(updating…)"}</div>
           <div className="overflow-x-auto">
@@ -465,6 +546,58 @@ function StrategyDashboardInner() {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      {/* EVAL: model evaluation strip — evaluation metrics, never plain "accuracy" */}
+      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-16">
+        <div className="card p-6">
+          <div className="flex items-baseline justify-between flex-wrap gap-2 mb-4">
+            <div className="eyebrow">MODEL EVALUATION — TIME-BASED SPLITS, NEVER RANDOM</div>
+            {metrics && (
+              <span className="pill"><span className="dot" />TEST YEAR {metrics.test_year}</span>
+            )}
+          </div>
+          {metrics ? (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div>
+                  <div className="eyebrow mb-1">ROC-AUC</div>
+                  <div className="display text-[32px] leading-none">{metrics.test_metrics.roc_auc.toFixed(4)}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">BRIER SCORE</div>
+                  <div className="display text-[32px] leading-none">{metrics.test_metrics.brier_score.toFixed(4)}</div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">PRECISION</div>
+                  <div className="display text-[32px] leading-none">
+                    {(metrics.test_metrics.precision * 100).toFixed(1)}<span className="text-[16px] align-top">%</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="eyebrow mb-1">RECALL</div>
+                  <div className="display text-[32px] leading-none">
+                    {(metrics.test_metrics.recall * 100).toFixed(1)}<span className="text-[16px] align-top">%</span>
+                  </div>
+                </div>
+              </div>
+              {metrics.walk_forward_cv && (
+                <div className="mt-4 text-[12px] text-[color:var(--ink-secondary)]">
+                  Walk-forward cross-validation across {metrics.walk_forward_cv.folds} seasons:
+                  ROC-AUC {metrics.walk_forward_cv.roc_auc_mean.toFixed(4)} ± {metrics.walk_forward_cv.roc_auc_std.toFixed(4)}
+                  {" "}· calibrated probabilities (mean Brier {metrics.walk_forward_cv.brier_mean.toFixed(4)})
+                </div>
+              )}
+              <div className="mt-3 text-[11px] text-[color:var(--ink-muted)]">
+                Trained on years &lt; {metrics.calibration_year}, calibrated on {metrics.calibration_year}, evaluated on {metrics.test_year} ({metrics.splits.test_rows.toLocaleString()} laps). Plain accuracy is not shown — only 5.4% of laps end in a win, so precision/recall and AUC are the honest measures. Full write-up: docs/09_model_results.md
+              </div>
+            </>
+          ) : (
+            <div className="text-[12px] text-[color:var(--ink-muted)]">
+              Evaluation metrics not available — run <span className="mono">python src/features/train_model.py</span> to generate them.
+            </div>
+          )}
         </div>
       </section>
 

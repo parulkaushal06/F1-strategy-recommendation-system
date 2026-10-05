@@ -28,7 +28,7 @@ import csv
 import logging
 import os
 import sys
-
+import json
 import joblib
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
@@ -47,6 +47,7 @@ logger = logging.getLogger("racecraft.api")
 
 ROOT = os.path.join(os.path.dirname(__file__), "..", "..")
 DATA_PATH = os.environ.get("RACECRAFT_DATA_PATH", os.path.join(ROOT, "data", "processed", "cleaned_dataset.csv"))
+METRICS_PATH = os.environ.get("RACECRAFT_METRICS_PATH", os.path.join(ROOT, "models", "model_metrics.json"))
 MODEL_PATH = os.environ.get("RACECRAFT_MODEL_PATH", os.path.join(ROOT, "models", "win_probability_model_calibrated.pkl"))
 RAW_MODEL_PATH = os.environ.get("RACECRAFT_RAW_MODEL_PATH", os.path.join(ROOT, "models", "win_probability_model_raw.pkl"))
 FEATURES_PATH = os.environ.get("RACECRAFT_FEATURES_PATH", os.path.join(ROOT, "models", "feature_columns.pkl"))
@@ -410,3 +411,17 @@ def compare(
             "history": history,
         }
     return result
+
+@app.get("/api/model-metrics")
+def model_metrics():
+    """Evaluation metrics written by train_model.py — auto-updates on every retrain."""
+    if not os.path.exists(METRICS_PATH):
+        raise HTTPException(
+            status_code=404,
+            detail="model_metrics.json not found — run `python src/features/train_model.py` first",
+        )
+    try:
+        with open(METRICS_PATH) as f:
+            return json.load(f)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to read model metrics: {exc}")

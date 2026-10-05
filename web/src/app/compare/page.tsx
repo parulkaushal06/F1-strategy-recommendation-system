@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
@@ -20,32 +19,39 @@ function buildPolyline(history: { lap: number; winProb: number }[], w = 900, h =
 export default function DriverComparison() {
   const [season] = useState(2023);
   const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [racesLoading, setRacesLoading] = useState(true);
   const [raceId, setRaceId] = useState<number | null>(null);
   const [drivers, setDrivers] = useState<DriverSummary[]>([]);
+  const [driversLoading, setDriversLoading] = useState(true);
   const [driverAId, setDriverAId] = useState<number | null>(null);
   const [driverBId, setDriverBId] = useState<number | null>(null);
   const [maxLap, setMaxLap] = useState(44);
   const [lap, setLap] = useState(32);
   const [data, setData] = useState<CompareResponse | null>(null);
+  const [compareLoading, setCompareLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    setRacesLoading(true);
     api.races(season).then((list) => {
       setRaces(list);
       const belgian = list.find((r) => r.name.includes("Belgian"));
       setRaceId((belgian ?? list[0])?.raceId ?? null);
-    }).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
+    }).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"))
+      .finally(() => setRacesLoading(false));
   }, [season]);
 
   useEffect(() => {
     if (raceId == null) return;
+    setDriversLoading(true);
     api.drivers(raceId).then((list) => {
       setDrivers(list);
       const ver = list.find((d) => d.code === "VER");
       const ham = list.find((d) => d.code === "HAM");
       setDriverAId((ver ?? list[0])?.driverId ?? null);
       setDriverBId((ham ?? list[1])?.driverId ?? null);
-    }).catch(() => setError("Failed to load drivers"));
+    }).catch(() => setError("Failed to load drivers"))
+      .finally(() => setDriversLoading(false));
   }, [raceId]);
 
   useEffect(() => {
@@ -58,30 +64,34 @@ export default function DriverComparison() {
 
   useEffect(() => {
     if (raceId == null || driverAId == null || driverBId == null || driverAId === driverBId) return;
+    setCompareLoading(true);
     const handle = setTimeout(() => {
       api.compare(raceId, driverAId, driverBId, lap)
         .then((res) => { setData(res); setError(null); })
-        .catch((e) => setError(String(e.message ?? e)));
+        .catch((e) => setError(String(e.message ?? e)))
+        .finally(() => setCompareLoading(false));
     }, 120);
     return () => clearTimeout(handle);
   }, [raceId, driverAId, driverBId, lap]);
 
   const lineA = useMemo(() => (data ? buildPolyline(data.driverA.history) : { points: "", last: null }), [data]);
   const lineB = useMemo(() => (data ? buildPolyline(data.driverB.history) : { points: "", last: null }), [data]);
+  const sameDriver = driverAId != null && driverAId === driverBId;
 
   return (
     <>
       <Nav active="/compare" />
-
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="eyebrow mb-3">HEAD TO HEAD</div>
         <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-8">Driver Comparison</h1>
-
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-8">
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">RACE</span>
-            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
-              {races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
+            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} disabled={racesLoading}
+              onChange={(e) => setRaceId(Number(e.target.value))}>
+              {racesLoading
+                ? <option value="">Loading races…</option>
+                : races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
             </select>
           </div>
           <div className="flex-1 min-w-0 sm:min-w-[220px] flex items-center gap-4">
@@ -91,41 +101,47 @@ export default function DriverComparison() {
           </div>
         </div>
         {error && <div className="mb-6 pill pill--accent">{error}</div>}
-
         <div className="grid sm:grid-cols-2 gap-4 mb-8">
-          <div className="card p-5 flex items-center gap-4" style={{ borderLeft: "3px solid var(--driver-a)" }}>
-            <div className="w-3 h-3 rounded-full shrink-0" style={{ background: "var(--driver-a)" }} />
-            <div className="flex-1">
-              <div className="eyebrow mb-1">DRIVER A</div>
-              <select className="text-[18px] font-semibold bg-transparent w-full" value={driverAId ?? ""} onChange={(e) => setDriverAId(Number(e.target.value))}>
-                {drivers.map((d) => <option key={d.driverId} value={d.driverId}>{d.code} · {d.name}</option>)}
-              </select>
-              <div className="text-[12px] text-[color:var(--ink-secondary)]">{data?.driverA.team}</div>
-            </div>
-          </div>
-          <div className="card p-5 flex items-center gap-4" style={{ borderLeft: "3px solid var(--driver-b)" }}>
-            <div className="w-3 h-3 rounded-full shrink-0" style={{ background: "var(--driver-b)" }} />
-            <div className="flex-1">
-              <div className="eyebrow mb-1">DRIVER B</div>
-              <select className="text-[18px] font-semibold bg-transparent w-full" value={driverBId ?? ""} onChange={(e) => setDriverBId(Number(e.target.value))}>
-                {drivers.map((d) => <option key={d.driverId} value={d.driverId}>{d.code} · {d.name}</option>)}
-              </select>
-              <div className="text-[12px] text-[color:var(--ink-secondary)]">{data?.driverB.team}</div>
-            </div>
-          </div>
+          {([["DRIVER A", driverAId, setDriverAId, "var(--driver-a)", data?.driverA.team],
+             ["DRIVER B", driverBId, setDriverBId, "var(--driver-b)", data?.driverB.team]] as const).map(
+            ([label, value, setter, color, team]) => (
+              <div key={label} className="card p-5 flex items-center gap-4" style={{ borderLeft: `3px solid ${color}` }}>
+                <div className="w-3 h-3 rounded-full shrink-0" style={{ background: color }} />
+                <div className="flex-1 min-w-0">
+                  <div className="eyebrow mb-1">{label}</div>
+                  <select
+                    className="text-[18px] font-semibold bg-transparent w-full truncate"
+                    value={value ?? ""}
+                    disabled={driversLoading || drivers.length === 0}
+                    onChange={(e) => setter(Number(e.target.value))}
+                  >
+                    {driversLoading
+                      ? <option value="">Loading drivers…</option>
+                      : drivers.length === 0
+                        ? <option value="">No drivers available</option>
+                        : drivers.map((d) => <option key={d.driverId} value={d.driverId}>{d.code} · {d.name}</option>)}
+                  </select>
+                  <div className="text-[12px] text-[color:var(--ink-secondary)]">{team ?? "—"}</div>
+                </div>
+              </div>
+            ))}
         </div>
+        {sameDriver && (
+          <div className="mb-6 pill">Pick two different drivers to compare — the chart shows the last valid comparison until then.</div>
+        )}
       </section>
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-8">
         <div className="card p-6">
-          <div className="flex items-baseline justify-between mb-5">
+          <div className="flex items-baseline justify-between mb-5 flex-wrap gap-2">
             <div className="eyebrow">WIN PROBABILITY OVER RACE DISTANCE (real, from the trained model)</div>
-            <div className="flex gap-4 eyebrow">
-              <span className="flex items-center gap-2"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "var(--driver-a)" }} />{data?.driverA.code}</span>
-              <span className="flex items-center gap-2"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "var(--driver-b)" }} />{data?.driverB.code}</span>
+            <div className="flex items-center gap-4 eyebrow">
+              <span className="flex items-center gap-2"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "var(--driver-a)" }} />{data?.driverA.code ?? "—"}</span>
+              <span className="flex items-center gap-2"><i className="w-2 h-2 rounded-full inline-block" style={{ background: "var(--driver-b)" }} />{data?.driverB.code ?? "—"}</span>
+              {compareLoading && <span className="text-[color:var(--ink-muted)]">updating…</span>}
             </div>
           </div>
-          <svg viewBox="0 0 900 300" className="w-full h-auto">
+          <svg viewBox="0 0 900 300" className="w-full h-auto" style={{ opacity: compareLoading ? 0.55 : 1, transition: "opacity 150ms" }}>
             <g stroke="var(--hairline)" strokeWidth="1">
               <line x1="0" y1="40" x2="900" y2="40" /><line x1="0" y1="110" x2="900" y2="110" />
               <line x1="0" y1="180" x2="900" y2="180" /><line x1="0" y1="250" x2="900" y2="250" />
@@ -153,46 +169,45 @@ export default function DriverComparison() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-16">
         <div className="card p-6">
-          <div className="eyebrow mb-5">STAT DELTA · LAP {lap}</div>
+          <div className="eyebrow mb-5">STAT DELTA · LAP {lap} {compareLoading && "(updating…)"}</div>
           <div className="overflow-x-auto">
-          <table className="w-full text-[13px]">
-            <thead>
-              <tr className="eyebrow text-left hairline-bottom">
-                <th className="py-2 pr-4 font-normal w-1/3">METRIC</th>
-                <th className="py-2 pr-4 font-normal text-right">{data?.driverA.code ?? "A"}</th>
-                <th className="py-2 pr-4 font-normal text-right">{data?.driverB.code ?? "B"}</th>
-              </tr>
-            </thead>
-            <tbody className="mono">
-              {data && [
-                { metric: "Position", a: `P${data.driverA.position}`, b: `P${data.driverB.position}`, lead: data.driverA.position < data.driverB.position ? "a" : "b" },
-                { metric: "Win probability", a: `${data.driverA.current.winProbability.toFixed(1)}%`, b: `${data.driverB.current.winProbability.toFixed(1)}%`, lead: data.driverA.current.winProbability > data.driverB.current.winProbability ? "a" : "b" },
-                { metric: "Tyre age", a: `${data.driverA.lapsOnCurrentTires} laps`, b: `${data.driverB.lapsOnCurrentTires} laps`, lead: data.driverA.lapsOnCurrentTires < data.driverB.lapsOnCurrentTires ? "a" : "b" },
-                { metric: "Pit urgency", a: `${data.driverA.current.pitUrgencyScore}/100`, b: `${data.driverB.current.pitUrgencyScore}/100`, lead: null },
-                { metric: "Race craft", a: data.driverA.current.raceCraftRecommendation.split(" (")[0], b: data.driverB.current.raceCraftRecommendation.split(" (")[0], lead: null },
-              ].map((row, i, arr) => (
-                <tr key={row.metric} className={i < arr.length - 1 ? "hairline-bottom" : ""}>
-                  <td className="py-3 pr-4 text-[color:var(--ink-secondary)]">{row.metric}</td>
-                  <td className="py-3 pr-4 text-right">
-                    <span className="inline-flex items-center gap-1.5 justify-end">
-                      {row.lead === "a" && <i className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "var(--driver-a)" }} />}
-                      {row.a}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 text-right">
-                    <span className="inline-flex items-center gap-1.5 justify-end">
-                      {row.lead === "b" && <i className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "var(--driver-b)" }} />}
-                      {row.b}
-                    </span>
-                  </td>
+            <table className="w-full text-[13px]">
+              <thead>
+                <tr className="eyebrow text-left hairline-bottom">
+                  <th className="py-2 pr-4 font-normal w-1/3">METRIC</th>
+                  <th className="py-2 pr-4 font-normal text-right">{data?.driverA.code ?? "A"}</th>
+                  <th className="py-2 pr-4 font-normal text-right">{data?.driverB.code ?? "B"}</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="mono">
+                {data && [
+                  { metric: "Position", a: `P${data.driverA.position}`, b: `P${data.driverB.position}`, lead: data.driverA.position < data.driverB.position ? "a" : "b" },
+                  { metric: "Win probability", a: `${data.driverA.current.winProbability.toFixed(1)}%`, b: `${data.driverB.current.winProbability.toFixed(1)}%`, lead: data.driverA.current.winProbability > data.driverB.current.winProbability ? "a" : "b" },
+                  { metric: "Tyre age", a: `${data.driverA.lapsOnCurrentTires} laps`, b: `${data.driverB.lapsOnCurrentTires} laps`, lead: data.driverA.lapsOnCurrentTires < data.driverB.lapsOnCurrentTires ? "a" : "b" },
+                  { metric: "Pit urgency", a: `${data.driverA.current.pitUrgencyScore}/100`, b: `${data.driverB.current.pitUrgencyScore}/100`, lead: null },
+                  { metric: "Race craft", a: data.driverA.current.raceCraftRecommendation.split(" (")[0], b: data.driverB.current.raceCraftRecommendation.split(" (")[0], lead: null },
+                ].map((row, i, arr) => (
+                  <tr key={row.metric} className={i < arr.length - 1 ? "hairline-bottom" : ""}>
+                    <td className="py-3 pr-4 text-[color:var(--ink-secondary)]">{row.metric}</td>
+                    <td className="py-3 pr-4 text-right">
+                      <span className="inline-flex items-center gap-1.5 justify-end">
+                        {row.lead === "a" && <i className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "var(--driver-a)" }} />}
+                        {row.a}
+                      </span>
+                    </td>
+                    <td className="py-3 pr-4 text-right">
+                      <span className="inline-flex items-center gap-1.5 justify-end">
+                        {row.lead === "b" && <i className="w-1.5 h-1.5 rounded-full inline-block" style={{ background: "var(--driver-b)" }} />}
+                        {row.b}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       </section>
-
       <Footer />
     </>
   );

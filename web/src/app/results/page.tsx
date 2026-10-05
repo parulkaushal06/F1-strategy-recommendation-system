@@ -19,14 +19,17 @@ export default function Results() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="eyebrow mb-3">RACE HISTORY</div>
-        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-6">Belgian Grand Prix · 2023</h1>
-        <div className="flex flex-wrap gap-2">
-          {["2018", "2019", "2021", "2022"].map((year) => (
-            <span key={year} className="btn !py-2 !px-3 opacity-50">
-              {year}
-            </span>
-          ))}
-          <span className="btn btn--accent !py-2 !px-3">2023</span>
+        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-4">
+          Belgian Grand Prix · 2023
+        </h1>
+        <div className="flex flex-wrap items-center gap-3 mb-6">
+          <span className="pill">
+            <span className="dot" />
+            2023 — most recent season in the dataset
+          </span>
+          <span className="text-[12px] text-[color:var(--ink-muted)]">
+            Official race classification. Pit-stop counts are cross-checked against OpenF1 telemetry.
+          </span>
         </div>
       </section>
 

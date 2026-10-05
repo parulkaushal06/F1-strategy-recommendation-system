@@ -130,6 +130,22 @@ export interface WhatIfResponse {
   perActionNotes: Record<string, string>; // honesty labels per action
 }
 
+// NEW: evaluation metrics served by GET /api/model-metrics (written by train_model.py)
+export interface ModelMetrics {
+  test_year: number;
+  calibration_year: number;
+  splits: { train_rows: number; calib_rows: number; test_rows: number };
+  test_metrics: { roc_auc: number; precision: number; recall: number; brier_score: number };
+  feature_importance_top10: { feature: string; importance: number }[];
+  walk_forward_cv?: {
+    folds: number;
+    test_years: number[];
+    roc_auc_mean: number;
+    roc_auc_std: number;
+    brier_mean: number;
+  };
+}
+
 export const api = {
   seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json()),
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
@@ -140,6 +156,12 @@ export const api = {
     getJSON("/api/strategy", { raceId, driverId, lap }),
   compare: (raceId: number, driverAId: number, driverBId: number, lap: number): Promise<CompareResponse> =>
     getJSON("/api/compare", { raceId, driverAId, driverBId, lap }),
+  // NEW: evaluation metrics — fetched once by the model evaluation strip
+  modelMetrics: (): Promise<ModelMetrics> =>
+    fetch(`${API_URL}/api/model-metrics`).then((r) => {
+      if (!r.ok) throw new Error("model metrics unavailable");
+      return r.json();
+    }),
   simulate: (raceId: number, driverId: number, lap: number): Promise<SimulateResponse> =>
     getJSON("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw: any) => ({
       currentWinProbability: raw.current_win_probability,

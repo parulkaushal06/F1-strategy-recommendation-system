@@ -28,6 +28,7 @@ function RaceHubInner() {
   const [races, setRaces] = useState<RaceSummary[]>([]);
   const [raceId, setRaceId] = useState<number | null>(null);
   const [info, setInfo] = useState<RaceInfo | null>(null);
+  const [infoLoading, setInfoLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [initializedFromQuery, setInitializedFromQuery] = useState(false);
 
@@ -53,10 +54,12 @@ function RaceHubInner() {
 
   useEffect(() => {
     if (raceId == null) return;
+    setInfoLoading(true);
     fetch(`${API_URL}/api/race-info?raceId=${raceId}`)
       .then((r) => r.json())
       .then(setInfo)
-      .catch(() => setError("Failed to load race info"));
+      .catch(() => setError("Failed to load race info"))
+      .finally(() => setInfoLoading(false));
   }, [raceId]);
 
   const circuit = useMemo(() => (info ? getCircuitData(info.circuitName) : null), [info]);
@@ -69,8 +72,10 @@ function RaceHubInner() {
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-6">
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">SEASON</span>
-            <select className="btn !py-2 max-w-full" value={season} onChange={(e) => setSeason(Number(e.target.value))}>
-              {seasons.map((y) => <option key={y} value={y}>{y}</option>)}
+            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            {races.length === 0
+            ? <option value="">Loading races…</option>
+            : races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
             </select>
           </div>
           <div className="flex items-center gap-2">
@@ -87,7 +92,9 @@ function RaceHubInner() {
             <div className="eyebrow mb-3">
               {info && `ROUND ${info.round} · ${info.year}`}
             </div>
-            <h1 className="text-[32px] sm:text-[44px] md:text-[58px] leading-[0.95]">{info?.name ?? "—"}</h1>
+            <h1 className="text-[32px] sm:text-[44px] md:text-[58px] leading-[0.95]">
+            {infoLoading ? <span className="text-[color:var(--ink-muted)]">Loading race…</span> : (info?.name ?? "—")}
+          </h1>
             <div className="mt-3 text-[14px] text-[color:var(--ink-secondary)]">{info?.circuitName}</div>
           </div>
         </div>

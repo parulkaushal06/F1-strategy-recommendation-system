@@ -34,7 +34,7 @@ Run from project root, after clean_data.py:
 import logging
 import os
 import sys
-
+import json
 import joblib
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
@@ -163,6 +163,41 @@ def train() -> dict:
     joblib.dump(feature_cols, os.path.join(MODELS_DIR, "feature_columns.pkl"))
     logger.info("Saved win_probability_model_calibrated.pkl, win_probability_model_raw.pkl, "
                 "and feature_columns.pkl -> %s", MODELS_DIR)
+        # --- Persist evaluation metrics so the API can serve them without retraining ---
+    metrics_payload = {
+        "test_year": TEST_YEAR,
+        "calibration_year": CALIBRATION_YEAR,
+        "splits": {
+            "train_rows": int(len(X_train)),
+            "calib_rows": int(len(X_calib)),
+            "test_rows": int(len(X_test)),
+        },
+        "test_metrics": {k: round(float(v), 4) for k, v in metrics.items()},
+        "feature_importance_top10": [
+            {"feature": k, "importance": round(float(v), 4)}
+            for k, v in importances.head(10).items()
+        ],
+    }
+
+    # Walk-forward CV results, if cross_validate.py has been run
+    cv_results_path = "reports/cross_validation_results.csv"
+    if os.path.exists(cv_results_path):
+        try:
+            cv_df = pd.read_csv(cv_results_path)
+            cv_summary = cv_df[["roc_auc", "precision", "recall", "brier_score"]].agg(["mean", "std"])
+            metrics_payload["walk_forward_cv"] = {
+                "folds": int(len(cv_df)),
+                "test_years": [int(y) for y in cv_df["test_year"].tolist()],
+                "roc_auc_mean": round(float(cv_summary.loc["mean", "roc_auc"]), 4),
+                "roc_auc_std": round(float(cv_summary.loc["std", "roc_auc"]), 4),
+                "brier_mean": round(float(cv_summary.loc["mean", "brier_score"]), 4),
+            }
+        except Exception as exc:
+            logger.warning("Could not include CV results in metrics payload: %s", exc)
+
+    with open(os.path.join(MODELS_DIR, "model_metrics.json"), "w") as f:
+        json.dump(metrics_payload, f, indent=2)
+    logger.info("Saved model_metrics.json -> %s", MODELS_DIR)
 
     return metrics
 

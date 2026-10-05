@@ -1,6 +1,11 @@
 @import "tailwindcss";
 
 :root {
+  /* FIX: native form controls (select dropdowns, scrollbars, inputs) render
+     in dark mode — without this, Chromium on Windows opens a white dropdown
+     list where the near-white option text is invisible. */
+  color-scheme: dark;
+
   /* ---- surfaces ---- */
   --surface-0: #14161c;
   --surface-1: #1c1f27;
@@ -173,6 +178,13 @@ a {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
+}
+
+/* FIX: fallback for browsers that style the native dropdown popup from the
+   option element. Without this, the popup opens white-on-white in dark theme. */
+select option {
+  background-color: var(--surface-2);
+  color: var(--ink-primary);
 }
 
 .topnav {

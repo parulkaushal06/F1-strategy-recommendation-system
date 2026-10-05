@@ -1,0 +1,72 @@
+{
+  "test_year": 2024,
+  "calibration_year": 2023,
+  "splits": {
+    "train_rows": 269314,
+    "calib_rows": 24386,
+    "test_rows": 26574
+  },
+  "test_metrics": {
+    "roc_auc": 0.9746,
+    "precision": 0.764,
+    "recall": 0.6884,
+    "brier_score": 0.0237
+  },
+  "feature_importance_top10": [
+    {
+      "feature": "position",
+      "importance": 0.2212
+    },
+    {
+      "feature": "gap_to_leader_s",
+      "importance": 0.2066
+    },
+    {
+      "feature": "gap_per_lap_covered_s",
+      "importance": 0.1546
+    },
+    {
+      "feature": "grid",
+      "importance": 0.1482
+    },
+    {
+      "feature": "gap_to_ahead_ms",
+      "importance": 0.1115
+    },
+    {
+      "feature": "pace_delta_to_fastest_ms",
+      "importance": 0.0508
+    },
+    {
+      "feature": "position_vs_grid",
+      "importance": 0.019
+    },
+    {
+      "feature": "cum_time_ms",
+      "importance": 0.0088
+    },
+    {
+      "feature": "race_progress",
+      "importance": 0.0083
+    },
+    {
+      "feature": "rolling_lap_time_ms",
+      "importance": 0.0082
+    }
+  ],
+  "walk_forward_cv": {
+    "folds": 7,
+    "test_years": [
+      2018,
+      2019,
+      2020,
+      2021,
+      2022,
+      2023,
+      2024
+    ],
+    "roc_auc_mean": 0.9708,
+    "roc_auc_std": 0.0113,
+    "brier_mean": 0.0257
+  }
+}
