@@ -1,0 +1,11 @@
+# Lightweight dependencies for the deployed FastAPI backend only
+# IMPORTANT: scikit-learn must match the version your models were trained with.
+# Check on your machine with:  pip show scikit-learn
+# and replace the line below with e.g.  scikit-learn==1.7.2
+scikit-learn>=1.6
+pandas
+numpy
+joblib
+shap
+fastapi
+uvicorn[standard]

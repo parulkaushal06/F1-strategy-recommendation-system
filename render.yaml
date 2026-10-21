@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: racecraft-api
+    runtime: docker
+    plan: free          # if it runs out of memory, change to: starter
+    healthCheckPath: /health
+    envVars:
+      - key: DATA_URL                # link to racecraft-data.tar.gz
+        sync: false
+      - key: RACECRAFT_CORS_ORIGINS  # your Vercel URL, e.g. https://xyz.vercel.app
+        sync: false
