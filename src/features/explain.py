@@ -26,7 +26,6 @@ import logging
 
 import numpy as np
 import pandas as pd
-import shap
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +34,8 @@ def build_explainer(raw_model):
     """One TreeExplainer can be reused across many predictions -- building it
     is the relatively expensive part, so callers (like the API) should build
     it once at startup, not per-request."""
+    import shap  # imported lazily: heavy, and only needed when explaining
+
     return shap.TreeExplainer(raw_model)
 
 
