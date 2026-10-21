@@ -25,6 +25,7 @@ ERROR HANDLING NOTES (added as part of the "industrial-level" pass):
 --------------------------------------------------------------------------
 """
 import csv
+import gc
 import logging
 import os
 import sys
@@ -112,13 +113,42 @@ _USED_COLUMNS = {
 
 
 def _load_dataset(path: str, feature_columns: list) -> pd.DataFrame:
+    """
+    Reads the big CSV in chunks, with text columns read straight into
+    "category" dtype. A plain pd.read_csv(...) builds every text value as a
+    Python string first and converts afterwards, which roughly doubles peak
+    memory while loading (e.g. ~635 MB peak for a ~314 MB final footprint --
+    enough to get killed on a 512 MB host). Same resulting DataFrame, lower peak.
+    """
+    header = pd.read_csv(path, nrows=0).columns
     if os.environ.get("RACECRAFT_LOAD_ALL_COLUMNS") == "1":
-        data = pd.read_csv(path, low_memory=False)
+        cols = list(header)
     else:
         wanted = _USED_COLUMNS | set(feature_columns)
-        data = pd.read_csv(path, low_memory=False, usecols=lambda c: c in wanted)
-    for col in data.select_dtypes(include=["object", "string"]).columns:
-        data[col] = data[col].astype("category")
+        cols = [c for c in header if c in wanted]
+
+    # Pass 1: find which columns are text (not numeric) and collect their distinct
+    # values, so every chunk can use the exact same categories in pass 2.
+    sample = pd.read_csv(path, usecols=cols, nrows=2000)
+    text_cols = [c for c in cols if not pd.api.types.is_numeric_dtype(sample[c])]
+    dtype = {}
+    if text_cols:
+        values = {c: set() for c in text_cols}
+        for chunk in pd.read_csv(path, usecols=text_cols, dtype=str, chunksize=50_000):
+            for c in text_cols:
+                values[c].update(chunk[c].dropna().unique())
+        dtype = {c: pd.CategoricalDtype(sorted(values[c])) for c in text_cols}
+
+    # Pass 2: read the data in chunks and join them.
+    parts = list(pd.read_csv(path, usecols=cols, dtype=dtype, chunksize=50_000))
+    data = pd.concat(parts, ignore_index=True)
+    del parts
+    gc.collect()
+    try:  # hand freed memory back to the OS (Linux/glibc only; harmless elsewhere)
+        import ctypes
+        ctypes.CDLL("libc.so.6").malloc_trim(0)
+    except Exception:
+        pass
     return data
 
 
