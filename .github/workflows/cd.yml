@@ -1,16 +1,14 @@
 name: CD
 
-# Runs only after CI succeeds on main
+# Manual deploy: Actions tab -> CD -> Run workflow.
+# Vercel also auto-deploys the frontend on every push, so this is only
+# needed if you want to trigger a deploy yourself.
 on:
-  workflow_run:
-    workflows: ["CI"]
-    types: [completed]
-    branches: [main]
+  workflow_dispatch:
 
 jobs:
   deploy-frontend:
     name: Deploy frontend to Vercel
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
       VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
@@ -36,7 +34,6 @@ jobs:
 
   deploy-backend:
     name: Trigger backend deploy on Render
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - name: Call Render deploy hook
