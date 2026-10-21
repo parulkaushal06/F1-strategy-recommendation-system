@@ -91,11 +91,42 @@ def _require_file(path: str, hint: str) -> str:
     return path
 
 
+# --------------------------------------------------------------------------
+# MEMORY NOTES (so this fits on small hosts, e.g. a 512 MB free tier):
+#  - only the columns the API actually uses are loaded from the big CSV
+#    (set RACECRAFT_LOAD_ALL_COLUMNS=1 to load everything),
+#  - repeated string columns are stored as pandas "category",
+#  - the calibrated model is loaded ONCE (by StrategyEngine) and reused,
+#  - the raw model is only needed for feature importances (computed once at
+#    startup) and for SHAP, so it is loaded lazily and not kept in memory,
+#  - SHAP itself is imported/built only on the first /api/explain call.
+# --------------------------------------------------------------------------
+_USED_COLUMNS = {
+    "anomalous_lap_time", "circuit_name", "code", "constructor_name", "cum_time_ms",
+    "cumulative_pit_stops", "driverId", "driverRef", "drs_zone_proxy", "gap_to_ahead_ms",
+    "gap_to_leader_ms", "gap_to_leader_s", "lap", "laps_since_last_pit",
+    "pace_delta_to_fastest_ms", "pit_duration_ms", "pit_stop_this_lap", "position",
+    "position_change", "raceId", "rolling_lap_time_ms", "round", "tire_age_ratio",
+    "total_laps", "year", "grid", "gap_per_lap_covered_s",
+}
+
+
+def _load_dataset(path: str, feature_columns: list) -> pd.DataFrame:
+    if os.environ.get("RACECRAFT_LOAD_ALL_COLUMNS") == "1":
+        data = pd.read_csv(path, low_memory=False)
+    else:
+        wanted = _USED_COLUMNS | set(feature_columns)
+        data = pd.read_csv(path, low_memory=False, usecols=lambda c: c in wanted)
+    for col in data.select_dtypes(include=["object", "string"]).columns:
+        data[col] = data[col].astype("category")
+    return data
+
+
 try:
-    df = pd.read_csv(_require_file(DATA_PATH, "run `python src/data/clean_data.py`"), low_memory=False)
-    model = joblib.load(_require_file(MODEL_PATH, "run `python src/features/train_model.py`"))
-    raw_model = joblib.load(_require_file(RAW_MODEL_PATH, "run `python src/features/train_model.py`"))
+    _require_file(MODEL_PATH, "run `python src/features/train_model.py`")
+    _require_file(RAW_MODEL_PATH, "run `python src/features/train_model.py`")
     feature_cols = joblib.load(_require_file(FEATURES_PATH, "run `python src/features/train_model.py`"))
+    df = _load_dataset(_require_file(DATA_PATH, "run `python src/data/clean_data.py`"), feature_cols)
 except Exception:
     logger.exception("Startup failed while loading data/model files.")
     raise
@@ -103,6 +134,16 @@ except Exception:
 real_pit_durations = df.loc[df["pit_duration_ms"] > 0, "pit_duration_ms"]
 avg_pit_loss_ms = real_pit_durations.median() if len(real_pit_durations) > 0 else 22000
 engine = StrategyEngine(model_path=MODEL_PATH, features_path=FEATURES_PATH, avg_pit_loss_ms=avg_pit_loss_ms)
+model = engine.model  # reuse, don't load the calibrated model a second time
+
+# Top feature importances come from the raw model; compute once, then let it go.
+_raw_for_importance = joblib.load(RAW_MODEL_PATH)
+FEATURE_IMPORTANCE_TOP10 = [
+    {"feature": k, "importance": round(float(v), 4)}
+    for k, v in pd.Series(_raw_for_importance.feature_importances_, index=feature_cols)
+    .sort_values(ascending=False).head(10).items()
+]
+del _raw_for_importance
 
 try:
     with open(_require_file(RACES_CSV, "run `python src/data/fetch_ergast_data.py`"), encoding="utf-8") as f:
@@ -113,11 +154,20 @@ except Exception:
     logger.exception("Startup failed while loading raw Ergast lookup CSVs.")
     raise
 
-try:
-    explainer = build_explainer(raw_model)
-except Exception:
-    logger.exception("Failed to build SHAP explainer at startup.")
-    raise
+_explainer = None
+
+
+def get_explainer():
+    """Build the SHAP explainer on first use (imports shap, loads the raw model)."""
+    global _explainer
+    if _explainer is None:
+        try:
+            _explainer = build_explainer(joblib.load(RAW_MODEL_PATH))
+        except Exception:
+            logger.exception("Failed to build SHAP explainer.")
+            raise
+    return _explainer
+
 
 logger.info("RACECRAFT API ready: %d rows, %d features, %d races, %d drivers.",
             len(df), len(feature_cols), len(RACE_NAMES), len(DRIVER_NAMES))
@@ -305,8 +355,7 @@ def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: 
 
     # --- real feature importance, top 10 (from the raw model -- CalibratedClassifierCV
     # wraps the base estimator in CV folds and doesn't expose feature_importances_ directly) ---
-    importances = pd.Series(raw_model.feature_importances_, index=feature_cols).sort_values(ascending=False).head(10)
-    feature_importance = [{"feature": k, "importance": round(float(v), 4)} for k, v in importances.items()]
+    feature_importance = FEATURE_IMPORTANCE_TOP10
 
     return {
         "meta": {
@@ -353,7 +402,7 @@ def explain(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: i
     while still reporting the CALIBRATED probability as the headline number.
     """
     _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
-    return explain_prediction(current_row, explainer, model, feature_cols)
+    return explain_prediction(current_row, get_explainer(), model, feature_cols)
 
 
 @app.get("/api/simulate/what-if")
