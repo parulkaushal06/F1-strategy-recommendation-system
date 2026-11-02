@@ -1,22 +1,29 @@
 # 🏎️ F1 Strategy & Win Probability Predictor
 
-## Project Link :
-https://f1-strategy-recommendation-system.vercel.app/
+![Python](https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-RandomForest-F7931E?logo=scikitlearn&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
+![Next.js](https://img.shields.io/badge/Next.js-Dashboard-000000?logo=nextdotjs&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Deployed on Vercel](https://img.shields.io/badge/Deployed-Vercel-000000?logo=vercel&logoColor=white)
+
+A machine-learning system that re-evaluates a driver's **win probability lap by lap** and turns it into concrete race-engineer-style recommendations: pit, use DRS, use ERS overtake mode, attack, defend, or manage pace.
+
+## 🔗 Live Demo
+
+**👉 [https://f1-strategy-recommendation-system.vercel.app](https://f1-strategy-recommendation-system.vercel.app/)**
+
+---
 
 ## 📌 Project Overview
 
-Given the current state of an F1 race — lap number, position, gap to leader, tire
-age, pit history — this project predicts:
+Given the current state of a race (lap number, position, gap to leader, tire age, pit history), the project produces:
 
-1. **Win probability** — the likelihood a given driver wins the race, updated lap by lap
-2. **Strategic recommendation** — what action improves that probability right now
-   (pit, use DRS, use ERS overtake mode, attack, defend, or manage pace)
-3. **Feature importance** — which factors actually drive winning, learned from historical data
+1. **Win probability**: the likelihood a given driver wins the race, updated every lap
+2. **Strategic recommendation**: the action that improves that probability right now
+3. **Feature importance**: which factors actually drive winning, learned from historical data
 
-This goes beyond a static "predict the winner before lights out" model. The goal is
-a model that re-evaluates win probability *as the race unfolds*, and turns that into
-a concrete recommendation — closer to what a race engineer's strategy tools do than
-a one-shot prediction.
+This goes beyond a static "predict the winner before lights out" model. It behaves more like a race engineer's strategy tool, reacting as the race unfolds.
 
 ```
 Current Win Probability: 68%
@@ -31,103 +38,96 @@ Recommendations:
 ## ✨ Features
 
 - **Live win probability** for any driver, at any lap, in any race in the dataset
-- **Pit stop recommendation** — data-driven tire-age window + continuous urgency score
-  (not a fixed lap count), validated at 73% recall / 0.7% false-positive rate
+- **Pit stop recommendation**: data-driven tire-age window plus a continuous urgency score (not a fixed lap count)
 - **DRS availability** flag
-- **ERS Overtake Mode** recommendation (clearly labeled proxy — no public ERS data exists)
-- **Race-craft recommendation** — attack / defend / defend urgently / manage pace / hold
-  station, using gap-to-car-ahead, gap-to-car-behind, pace delta, and position trend
-- **Feature importance analysis** — what actually drives winning (position and gap to
-  leader dominate)
-- **RACECRAFT dashboard** (`web/`) — a Next.js + Tailwind app with real circuit maps for
-  31 tracks, wired to the same trained model and `StrategyEngine` through a FastAPI layer
-- Cross-source data validation between two independent F1 data providers
-  (98.9%–100% agreement on pit stops and driver codes)
-- Explicit, documented separation between *measured* signals and *inferred* proxies
+- **ERS overtake mode** recommendation (clearly labeled as a proxy, since no public ERS data exists)
+- **Race-craft recommendation**: attack / defend / defend urgently / manage pace / hold station, using gap ahead, gap behind, pace delta and position trend
+- **Feature importance analysis**: position and gap to leader dominate
+- **RACECRAFT dashboard**: Next.js + Tailwind app with real circuit maps for 31 tracks
+- **Cross-source data validation** between two independent F1 data providers (98.9%–100% agreement on pit stops and driver codes)
+- Explicit separation between *measured* signals and *inferred* proxies
 
 ## 🗺️ RACECRAFT Dashboard
 
-Season Hub, Race Hub, Strategy Dashboard, Driver Comparison, and Results — all wired to
-the same trained model and `StrategyEngine` through a small FastAPI layer (the frontend
-can't load a `.pkl` file itself, so it calls the API instead). This was preceded by a
-Streamlit prototype used to validate the strategy engine's output in a live UI before
-building this out; that prototype has since been removed in favor of a single frontend.
+The web app (`web/`) includes a Season Hub, Race Hub, Strategy Dashboard, Driver Comparison and Results view. It talks to the trained model and `StrategyEngine` through a small FastAPI layer, since a browser can't load a `.pkl` file directly.
 
-Circuit maps are **real, not illustrative**: 31 of the 35 circuits in this project's
-dataset have actual track outlines (traced by
-[julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg), CC BY 4.0 — see
-`assets/circuits-svg/ATTRIBUTION.md`), with corners and sector-boundary markers
-registered onto that outline using real FastF1 telemetry (see
-`tools/circuit-alignment/`). Alignment quality is honestly reported per circuit
-(residual ~20–100px depending on how geometrically distinct the track's corners are) —
-4 circuits (Valencia, Korea, India, Malaysia) have no real map because FastF1 doesn't
-reliably expose session data for races before ~2018.
+Circuit maps are real, not illustrative. 31 of the 35 circuits in the dataset use actual track outlines from [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg) (CC BY 4.0, see `assets/circuits-svg/ATTRIBUTION.md`), with corners and sector markers aligned using real FastF1 telemetry (see `tools/circuit-alignment/`). Four circuits (Valencia, Korea, India, Malaysia) have no real map because FastF1 doesn't reliably expose session data for races before about 2018.
 
-**Run it:**
-```bash
-# Terminal 1 — the API (real model + StrategyEngine)
-uvicorn src.api.main:app --reload --port 8000
+## 🛠️ Tech Stack
 
-# Terminal 2 — the frontend
-cd web
-npm install
-npm run dev
-```
-Opens at `http://localhost:3000`. The API must be running first — the frontend calls
-`http://localhost:8000` directly (configurable via `web/.env.local`).
+| Layer | Tools |
+|---|---|
+| Data & ML | Python, pandas, numpy, scikit-learn (`RandomForestClassifier`), joblib |
+| API | FastAPI, uvicorn |
+| Frontend | Next.js, Tailwind CSS |
+| Telemetry / maps | FastF1 |
+| Deployment | Vercel (frontend), Docker + `render.yaml` (backend), GitHub Actions CI/CD |
 
-## 🛠️ Technologies Used
-
-- **Python** — pandas, numpy
-- **scikit-learn** — `RandomForestClassifier` for win probability
-- **FastAPI** + **uvicorn** — API layer serving the model/`StrategyEngine` to the web frontend
-- **Next.js** + **Tailwind CSS** — RACECRAFT dashboard (`web/`)
-- **FastF1** — real corner and sector-boundary telemetry for circuit map alignment
-- **joblib** — model persistence
-- **Data sources** — [Ergast/Kaggle F1 historical database](http://ergast.com/mrd/) (1950–2024),
-  [OpenF1 API](https://openf1.org/) (2023 telemetry: laps, pits, stints, weather, real DRS),
-  [FastF1](https://github.com/theOehrly/Fast-F1) (real corner/sector telemetry, circuit maps
-  from [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg), CC BY 4.0)
+**Data sources:** [Ergast/Kaggle F1 database](http://ergast.com/mrd/) (1950–2024), [OpenF1 API](https://openf1.org/) (2023 laps, pits, stints, weather, real DRS), [FastF1](https://github.com/theOehrly/Fast-F1) (corner/sector telemetry).
 
 ## 📂 Project Structure
 
 ```
-F1 Sport/
+F1-strategy-recommendation-system/
 ├── data/
-│   ├── raw/            # untouched downloaded data (Ergast CSVs, OpenF1 API responses)
-│   ├── interim/         # partially merged/cleaned data
-│   └── processed/       # final model-ready datasets
-├── notebooks/            # step-by-step analysis (data cleaning, EDA, modeling)
+│   ├── raw/                # untouched downloaded data (Ergast CSVs, OpenF1 responses)
+│   ├── interim/            # partially merged/cleaned data
+│   └── processed/          # final model-ready datasets
+├── notebooks/              # data cleaning, EDA, modeling
 ├── src/
-│   ├── data/             # scripts to fetch/merge raw data + export JSON for web/
-│   ├── features/         # feature engineering + model training scripts
-│   ├── strategy/          # strategy recommendation engine
-│   └── api/               # FastAPI wrapper around the model + StrategyEngine
-├── models/                # saved trained model files
-├── web/                   # RACECRAFT Next.js + Tailwind dashboard
-├── assets/circuits-svg/   # real circuit outline SVGs (CC BY 4.0, see ATTRIBUTION.md)
-├── tools/circuit-alignment/  # fetches real FastF1 corner/sector data, aligns onto the SVGs
-├── docs/                  # full project documentation (see index below)
-└── reports/               # figures and write-ups
+│   ├── data/               # fetch/merge raw data + export JSON for web/
+│   ├── features/           # feature engineering + model training
+│   ├── strategy/           # strategy recommendation engine
+│   └── api/                # FastAPI wrapper around model + StrategyEngine
+├── models/                 # saved trained models
+├── web/                    # RACECRAFT Next.js + Tailwind dashboard
+├── assets/circuits-svg/    # real circuit outlines (CC BY 4.0)
+├── tools/circuit-alignment/# aligns FastF1 corner/sector data onto the SVGs
+├── tests/                  # test suite
+├── docs/                   # full project documentation
+├── reports/                # figures and write-ups
+├── backtest_pit_strategy.py   # pit strategy backtest
+├── tune_drs_threshold.py      # DRS threshold tuning
+├── validate_drs_proxy.py      # DRS proxy validation
+├── test_race_craft.py         # race-craft checks
+├── config.yaml
+├── start.sh
+├── Dockerfile
+├── render.yaml
+└── requirements*.txt          # requirements.txt, requirements-api.txt, requirements-dev.txt
 ```
 
 ## ⚙️ Installation
 
 ```bash
-git clone <this-repo>
-cd "F1 Sport"
+git clone https://github.com/parulkaushal06/F1-strategy-recommendation-system.git
+cd F1-strategy-recommendation-system
 python -m venv venv
-venv\Scripts\activate        # Windows
-# source venv/bin/activate   # macOS/Linux
+venv\Scripts\activate          # Windows
+# source venv/bin/activate     # macOS/Linux
 pip install -r requirements.txt
 ```
 
-## ▶️ How to Run
+## ▶️ Running Locally
 
-**Run RACECRAFT** — see the [RACECRAFT Dashboard](#-racecraft-dashboard) section above
-for the two-terminal setup (FastAPI backend + Next.js frontend).
+**1. Start the API**
 
-**Use the strategy engine directly in Python:**
+```bash
+uvicorn src.api.main:app --reload --port 8000
+```
+
+**2. Start the dashboard** (in a second terminal)
+
+```bash
+cd web
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. The API must be running first. The frontend calls `http://localhost:8000` by default, configurable via `web/.env.local`.
+
+**Use the strategy engine directly in Python**
+
 ```python
 import pandas as pd
 from src.strategy.recommend_action import StrategyEngine
@@ -136,87 +136,75 @@ df = pd.read_csv("data/processed/cleaned_dataset.csv", low_memory=False)
 real_pit_durations = df.loc[df["pit_duration_ms"] > 0, "pit_duration_ms"]
 engine = StrategyEngine(avg_pit_loss_ms=real_pit_durations.median())
 
-row = df.iloc[1000]                                 # one driver, one lap
+row = df.iloc[1000]                      # one driver, one lap
 field_df = df[(df["raceId"] == row["raceId"]) & (df["lap"] == row["lap"])]
 
-result = engine.recommend_full(row, same_lap_field_df=field_df)
-print(result)
+print(engine.recommend_full(row, same_lap_field_df=field_df))
 ```
 
-**Rerun the full pipeline from scratch** (only needed after changing raw data or a
-feature — raw data must already be in `data/raw/`, see `docs/02_data_collection.md`):
+**Rebuild the pipeline from scratch** (raw data must already be in `data/raw/`, see `docs/02_data_collection.md`):
+
 ```bash
-python src/data/merge_datasets.py       # raw Ergast CSVs -> lap-level merged dataset
+python src/data/merge_datasets.py       # raw Ergast CSVs -> lap-level dataset
 python src/features/build_features.py   # engineer race-state features
 python src/data/consolidate_openf1.py   # combine OpenF1 telemetry CSVs
-python src/data/final_merge.py          # bridge Ergast <-> OpenF1, merge telemetry in
-python src/data/clean_data.py           # validation, dedup, missing-value handling
+python src/data/final_merge.py          # bridge Ergast <-> OpenF1
+python src/data/clean_data.py           # validation, dedup, missing values
 python src/features/train_model.py      # train + save win-probability model
 ```
 
 ## 📊 Results
 
-- **Win probability model**: `RandomForestClassifier`, time-based train/test split by
-  season (no future-race leakage). **ROC-AUC 0.976** on the held-out season, and stable
-  across other held-out seasons tested (0.976, 0.991) — not a lucky split.
-- **Calibration**: rows that actually won the race average **91.4%** predicted
-  probability; rows that didn't win average **6.5%**.
-- **Holds up early in the race, not just late**: AUC 0.95 in the first 15% of a race,
-  rising to 0.995 by the final 15% — it isn't just confirming the obvious once someone
-  is already clearly winning.
-- **Pit stop recommendation**: **73% recall** (flags a pit as due, tested on 300 real
-  "lap before an actual pit stop" samples), **0.7% false-positive rate** (fresh tires
-  almost never wrongly flagged).
-- **Race-craft recommendation**: validated across ~1,150 real driver-lap snapshots —
-  distribution matches real race behavior (attacking chances genuinely rare, ~1% of
-  laps; leader never wrongly told to attack after a bug fix).
+- **Win probability model:** time-based train/test split by season (no future-race leakage). **ROC-AUC 0.976** on the held-out season, stable across other held-out seasons (0.976, 0.991).
+- **Calibration:** rows that actually won average **91.4%** predicted probability; rows that didn't average **6.5%**.
+- **Early-race performance:** AUC 0.95 in the first 15% of a race, rising to 0.995 in the final 15%.
+- **Pit stop recommendation:** **73% recall** on 300 real "lap before an actual pit stop" samples, **0.7% false-positive rate**.
+- **Race-craft recommendation:** validated on about 1,150 real driver-lap snapshots; attack chances are rare (~1% of laps), matching real race behavior.
 
+Details: [`docs/09_model_results.md`](docs/09_model_results.md) and [`docs/10_strategy_engine.md`](docs/10_strategy_engine.md).
 
-Full write-ups: [`docs/09_model_results.md`](docs/09_model_results.md) and
-[`docs/10_strategy_engine.md`](docs/10_strategy_engine.md).
+## 🚀 Deployment
 
-## 🚀 Future Improvements
+- **Frontend:** deployed on Vercel at [f1-strategy-recommendation-system.vercel.app](https://f1-strategy-recommendation-system.vercel.app/)
+- **Backend:** containerised with the included `Dockerfile`, with a `render.yaml` for hosting the FastAPI service
+- **CI/CD:** GitHub Actions workflows in `.github/workflows/` (deployment is triggered manually)
 
-- **Remove a duplicate feature**: `gap_to_leader_ms` and `gap_to_leader_s` are the same
-  value in two units, both currently fed to the model — real redundancy, not signal
-- **Proper multi-season cross-validation**, reporting mean ± std AUC across several
-  held-out seasons instead of a single test year
-- **Hyperparameter tuning** (grid/random search over `max_depth`, `min_samples_leaf`,
-  `n_estimators`) — likely modest gains, but standard practice worth formalizing
-- **New signal, not just tuning** — this is expected to matter more than the above:
-  - Driver / constructor recent-form and historical win-rate features
-  - Qualifying gap-to-pole (not just grid slot)
-  - Real tire compound and weather data beyond the current 1,357-row OpenF1 subset
-- **Validate `drs_zone_proxy`** against the real DRS data already collected for 3 races
-- **Extend OpenF1 telemetry coverage** beyond 2023 and beyond 3 validated races
-- **Extend real circuit maps to the remaining 4 circuits** (Valencia, Korea, India,
-  Malaysia) — blocked on FastF1 not reliably exposing session data pre-2018, so this
-  needs a different data source, not just re-running the existing pipeline
-- **Tighten circuit-alignment residuals** for the weaker fits (Spielberg, Mugello, Baku
-  currently ~100px) — the curvature-peak corner detector struggles on tracks where real
-  corners are tightly clustered; would need either denser sampling or a different
-  corner-matching approach
-- Be clear this project is a rigorously validated data-science exercise on historical
-  data, not a live pit-wall tool — closing that gap would need proprietary telemetry,
-  live weather radar, and physics-based tire models no public dataset provides
+## 🔮 Future Improvements
 
-See [`docs/06_known_limitations.md`](docs/06_known_limitations.md) and
-[`docs/07_project_status.md`](docs/07_project_status.md) for the full, honest list.
+- Remove the duplicate feature (`gap_to_leader_ms` and `gap_to_leader_s` carry the same signal)
+- Multi-season cross-validation reporting mean ± std AUC
+- Hyperparameter tuning (`max_depth`, `min_samples_leaf`, `n_estimators`)
+- New signal: driver/constructor form, qualifying gap-to-pole, tire compound and weather beyond the current OpenF1 subset
+- Validate `drs_zone_proxy` against the real DRS data collected for 3 races
+- Extend OpenF1 telemetry beyond 2023
+- Real circuit maps for the remaining 4 circuits and tighter alignment for Spielberg, Mugello and Baku
 
+> ⚠️ This is a rigorously validated data-science project on historical data, not a live pit-wall tool. That would require proprietary telemetry, live weather radar and physics-based tire models.
+
+See [`docs/06_known_limitations.md`](docs/06_known_limitations.md) and [`docs/07_project_status.md`](docs/07_project_status.md) for the full list.
 
 ## 📚 Documentation Index
 
 | File | Contents |
 |---|---|
 | [`00_overview.md`](docs/00_overview.md) | Project goals and architecture |
-| [`01_data_sources.md`](docs/01_data_sources.md) | Where every dataset came from, and coverage limits |
-| [`02_data_collection.md`](docs/02_data_collection.md) | Exact scripts run to download raw data |
-| [`03_data_merging.md`](docs/03_data_merging.md) | How separate raw tables became one dataset |
-| [`04_data_cleaning.md`](docs/04_data_cleaning.md) | Cleaning steps and validation checks |
-| [`05_data_dictionary.md`](docs/05_data_dictionary.md) | Every column — meaning, source, type |
+| [`01_data_sources.md`](docs/01_data_sources.md) | Dataset origins and coverage limits |
+| [`02_data_collection.md`](docs/02_data_collection.md) | Scripts used to download raw data |
+| [`03_data_merging.md`](docs/03_data_merging.md) | How raw tables became one dataset |
+| [`04_data_cleaning.md`](docs/04_data_cleaning.md) | Cleaning steps and validation |
+| [`05_data_dictionary.md`](docs/05_data_dictionary.md) | Every column: meaning, source, type |
 | [`06_known_limitations.md`](docs/06_known_limitations.md) | Honest gaps in the data |
 | [`07_project_status.md`](docs/07_project_status.md) | What's done, what's next |
 | [`08_eda_findings.md`](docs/08_eda_findings.md) | Exploratory analysis findings |
 | [`09_model_results.md`](docs/09_model_results.md) | Model performance and feature importance |
 | [`10_strategy_engine.md`](docs/10_strategy_engine.md) | Recommendation logic, bugs found and fixed |
 | [`11_dashboard.md`](docs/11_dashboard.md) | Dashboard design and how to run it |
+
+## 🙏 Acknowledgements
+
+- Circuit outlines by [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg) (CC BY 4.0)
+- Data from Ergast, [OpenF1](https://openf1.org/) and [FastF1](https://github.com/theOehrly/Fast-F1)
+
+## 👤 Author
+
+**Parul Kaushal**, [@parulkaushal06](https://github.com/parulkaushal06)
