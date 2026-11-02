@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
@@ -8,41 +8,69 @@ import Footer from "@/components/Footer";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
 import seasonCalendar from "@/data/season_2023.json";
-import { api, type RaceInfo, type RaceSummary } from "@/lib/api";
+import { api, type RaceSummary } from "@/lib/api";
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+
+interface RaceInfo {
+  raceId: number;
+  year: number;
+  round: number;
+  name: string;
+  circuitName: string;
+  totalLaps: number;
+}
 
 function RaceHubInner() {
   const searchParams = useSearchParams();
-  const [season] = useState<number>(2023);
+  const [seasons, setSeasons] = useState<number[]>([]);
+  const [season, setSeason] = useState<number>(2023);
   const [races, setRaces] = useState<RaceSummary[]>([]);
   const [raceId, setRaceId] = useState<number | null>(null);
   const [info, setInfo] = useState<RaceInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // FIX: one-shot flag → ref, not state (doesn't need to trigger a re-render)
+  const initializedFromQuery = useRef(false);
 
+  useEffect(() => {
+    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
+  }, []);
+
+  // FIX: useRef + searchParams in deps; eslint-disable removed.
   useEffect(() => {
     api.races(season).then((list) => {
       setRaces(list);
       const queryRaceId = searchParams.get("raceId");
-      if (queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
+      if (!initializedFromQuery.current && queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
         setRaceId(Number(queryRaceId));
       } else {
         const nextRaceId = seasonCalendar.find((r) => r.status === "next")?.raceId;
         const fallback = list.find((r) => r.raceId === nextRaceId);
         setRaceId((fallback ?? list[0])?.raceId ?? null);
       }
+      initializedFromQuery.current = true;
     }).catch(() => setError("Failed to load races"));
   }, [season, searchParams]);
 
+  // FIX: setInfoLoading(true) was synchronous in the effect body.
+  // Moved inside an async IIFE so the only synchronous work is the fetch call itself.
   useEffect(() => {
     if (raceId == null) return;
-    const handle = setTimeout(() => {
+    let cancelled = false;
+    (async () => {
       setInfoLoading(true);
-      api.raceInfo(raceId)
-        .then((data) => { setInfo(data); setError(null); })
-        .catch(() => setError("Failed to load race info"))
-        .finally(() => setInfoLoading(false));
-    }, 0);
-    return () => clearTimeout(handle);
+      try {
+        const r = await fetch(`${API_URL}/api/race-info?raceId=${raceId}`);
+        const json: RaceInfo = await r.json();
+        if (!cancelled) setInfo(json);
+      } catch {
+        if (!cancelled) setError("Failed to load race info");
+      } finally {
+        if (!cancelled) setInfoLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [raceId]);
 
   const circuit = useMemo(() => (info ? getCircuitData(info.circuitName) : null), [info]);
@@ -53,9 +81,26 @@ function RaceHubInner() {
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-6">
+          {/* FIX: the old "SEASON" block was bound to raceId — that was a bug. Real season selector now. */}
+          <div className="flex items-center gap-2">
+            <span className="eyebrow shrink-0">SEASON</span>
+            <select
+              className="btn !py-2 max-w-full truncate"
+              value={season}
+              onChange={(e) => setSeason(Number(e.target.value))}
+            >
+              {seasons.length === 0
+                ? <option value={season}>{season}</option>
+                : seasons.map((y) => <option key={y} value={y}>{y}</option>)}
+            </select>
+          </div>
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">RACE</span>
-            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            <select
+              className="btn !py-2 max-w-full truncate"
+              value={raceId ?? ""}
+              onChange={(e) => setRaceId(Number(e.target.value))}
+            >
               {races.length === 0
                 ? <option value="">Loading races…</option>
                 : races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}

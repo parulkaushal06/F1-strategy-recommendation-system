@@ -18,60 +18,77 @@ interface CircuitTrackProps {
   className?: string;
 }
 
+const DEFAULT_SECTOR_LABELS = ["S1/S2", "S2/S3"];
+
 export default function CircuitTrack({
   pathD,
   viewBox = "0 0 500 500",
   numCorners = 19,
   sectorPoints,
-  sectorLabels = ["S1/S2", "S2/S3"],
+  sectorLabels = DEFAULT_SECTOR_LABELS,
   showDrsZones = true,
   showStartFinishMark = true,
   lap,
   totalLaps,
   className,
 }: CircuitTrackProps) {
+  // path element held in state via a callback ref (reading refs in render is forbidden).
   const [pathEl, setPathEl] = useState<SVGPathElement | null>(null);
-  const analysis = useMemo(
-    () => (pathEl ? analyzeTrack(pathEl, { numCorners }) : null),
-    [pathEl, numCorners]
-  );
-  const drsPolylines = useMemo(() => {
-    if (!pathEl || !analysis || !showDrsZones) return [];
-    return [analysis.drs1, analysis.drs2].map((zone) =>
-      sampleRange(pathEl, analysis.total, zone.fromL, zone.len)
-        .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
-        .join(" ")
-    );
-  }, [pathEl, analysis, showDrsZones]);
 
-  const startFinishLine = useMemo(() => {
-    if (!pathEl || !analysis || !showStartFinishMark) return null;
-    // These circuit SVGs conventionally start their path at (or right next to) the
-    // real start/finish line, so a perpendicular tick at length 0 lines up correctly
-    // for any circuit's own outline — unlike a hardcoded decoration copied from one
-    // specific track's file, which wouldn't generalize to the others.
-    const p0 = pathEl.getPointAtLength(0);
-    const p1 = pathEl.getPointAtLength(Math.min(3, analysis.total * 0.01));
-    const dx = p1.x - p0.x, dy = p1.y - p0.y;
-    const len = Math.hypot(dx, dy) || 1;
-    const px = -dy / len, py = dx / len; // perpendicular to travel direction
-    const halfWidth = 12;
-    return {
-      x1: p0.x - px * halfWidth, y1: p0.y - py * halfWidth,
-      x2: p0.x + px * halfWidth, y2: p0.y + py * halfWidth,
-    };
-  }, [pathEl, analysis, showStartFinishMark]);
+  // All geometry is derived synchronously from pathEl + props — no effects,
+  // no setState-in-effect. Safe because pathEl is state, not a ref.
+  const geometry = useMemo(() => {
+    void pathD;
+    if (!pathEl) {
+      return {
+        analysis: null,
+        drsPolylines: [] as string[],
+        startFinishLine: null as null | { x1: number; y1: number; x2: number; y2: number },
+        carPoint: null as null | { x: number; y: number },
+      };
+    }
 
-  const carPoint =
-    analysis && lap != null && totalLaps && pathEl
-      ? pathEl.getPointAtLength(((lap - 1) / (totalLaps - 1)) * analysis.total)
-      : null;
+    const analysis = analyzeTrack(pathEl, { numCorners });
+
+    const drsPolylines: string[] = [];
+    if (showDrsZones) {
+      for (const zone of [analysis.drs1, analysis.drs2]) {
+        drsPolylines.push(
+          sampleRange(pathEl, analysis.total, zone.fromL, zone.len)
+            .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
+            .join(" ")
+        );
+      }
+    }
+
+    let startFinishLine: { x1: number; y1: number; x2: number; y2: number } | null = null;
+    if (showStartFinishMark) {
+      const p0 = pathEl.getPointAtLength(0);
+      const p1 = pathEl.getPointAtLength(Math.min(3, analysis.total * 0.01));
+      const dx = p1.x - p0.x, dy = p1.y - p0.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const px = -dy / len, py = dx / len;
+      const halfWidth = 12;
+      startFinishLine = {
+        x1: p0.x - px * halfWidth, y1: p0.y - py * halfWidth,
+        x2: p0.x + px * halfWidth, y2: p0.y + py * halfWidth,
+      };
+    }
+
+    let carPoint: { x: number; y: number } | null = null;
+    if (lap != null && totalLaps != null && totalLaps > 1) {
+      const fraction = Math.min(1, Math.max(0, (lap - 1) / (totalLaps - 1)));
+      carPoint = pathEl.getPointAtLength(fraction * analysis.total);
+    }
+
+    return { analysis, drsPolylines, startFinishLine, carPoint };
+  }, [pathEl, pathD, numCorners, showDrsZones, showStartFinishMark, lap, totalLaps]);
+
+  const { analysis, drsPolylines, startFinishLine, carPoint } = geometry;
 
   return (
     <svg viewBox={viewBox} className={className}>
-      {/* key remounts the outline when its path changes, so the ref and analysis follow the new geometry */}
       <path
-        key={pathD}
         ref={setPathEl}
         d={pathD}
         fill="none"

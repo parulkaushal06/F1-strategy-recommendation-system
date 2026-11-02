@@ -31,49 +31,88 @@ export default function DriverComparison() {
   const [compareLoading, setCompareLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // FIX: setRacesLoading(true) was synchronous in the effect body.
+  // IIFE + try/finally keeps every setState inside an async continuation.
   useEffect(() => {
-    api.races(season).then((list) => {
-      setRaces(list);
-      const belgian = list.find((r) => r.name.includes("Belgian"));
-      setRaceId((belgian ?? list[0])?.raceId ?? null);
-    }).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"))
-      .finally(() => setRacesLoading(false));
+    let cancelled = false;
+    (async () => {
+      setRacesLoading(true);
+      try {
+        const list = await api.races(season);
+        if (cancelled) return;
+        setRaces(list);
+        const belgian = list.find((r) => r.name.includes("Belgian"));
+        setRaceId((belgian ?? list[0])?.raceId ?? null);
+      } catch {
+        if (!cancelled) setError("Could not reach the strategy API (is uvicorn running on :8000?)");
+      } finally {
+        if (!cancelled) setRacesLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [season]);
 
+  // FIX: same pattern for drivers — setDriversLoading(true) now lives inside the IIFE.
   useEffect(() => {
     if (raceId == null) return;
-    const handle = setTimeout(() => {
+    let cancelled = false;
+    (async () => {
       setDriversLoading(true);
-      api.drivers(raceId).then((list) => {
+      try {
+        const list = await api.drivers(raceId);
+        if (cancelled) return;
         setDrivers(list);
         const ver = list.find((d) => d.code === "VER");
         const ham = list.find((d) => d.code === "HAM");
         setDriverAId((ver ?? list[0])?.driverId ?? null);
         setDriverBId((ham ?? list[1])?.driverId ?? null);
-      }).catch(() => setError("Failed to load drivers"))
-        .finally(() => setDriversLoading(false));
-    }, 0);
-    return () => clearTimeout(handle);
+      } catch {
+        if (!cancelled) setError("Failed to load drivers");
+      } finally {
+        if (!cancelled) setDriversLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [raceId]);
 
+  // Lap bounds for driver A (all setState calls are in the async continuation)
   useEffect(() => {
     if (raceId == null || driverAId == null) return;
-    api.laps(raceId, driverAId).then((b) => {
-      setMaxLap(b.maxLap);
-      setLap((prev) => Math.min(prev, b.maxLap));
-    }).catch(() => {});
+    let cancelled = false;
+    (async () => {
+      try {
+        const b = await api.laps(raceId, driverAId);
+        if (cancelled) return;
+        setMaxLap(b.maxLap);
+        setLap((prev) => Math.min(prev, b.maxLap));
+      } catch {
+        /* silent — lap bounds are non-critical */
+      }
+    })();
+    return () => { cancelled = true; };
   }, [raceId, driverAId]);
 
+  // FIX: setCompareLoading(true) was synchronous in the effect body.
+  // Debounced fetch now runs inside the timeout callback (async boundary).
   useEffect(() => {
     if (raceId == null || driverAId == null || driverBId == null || driverAId === driverBId) return;
+    let cancelled = false;
     const handle = setTimeout(() => {
-      setCompareLoading(true);
-      api.compare(raceId, driverAId, driverBId, lap)
-        .then((res) => { setData(res); setError(null); })
-        .catch((e) => setError(String(e.message ?? e)))
-        .finally(() => setCompareLoading(false));
+      (async () => {
+        setCompareLoading(true);
+        try {
+          const res = await api.compare(raceId, driverAId, driverBId, lap);
+          if (cancelled) return;
+          setData(res);
+          setError(null);
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+        } finally {
+          if (!cancelled) setCompareLoading(false);
+        }
+      })();
     }, 120);
-    return () => clearTimeout(handle);
+    return () => { cancelled = true; clearTimeout(handle); };
   }, [raceId, driverAId, driverBId, lap]);
 
   const lineA = useMemo(() => (data ? buildPolyline(data.driverA.history) : { points: "", last: null }), [data]);

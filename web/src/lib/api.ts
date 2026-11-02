@@ -87,14 +87,14 @@ async function getJSON<T>(path: string, params: Record<string, string | number>)
     // over a raw path+status+JSON blob.
     let detail = "";
     try {
-      const parsed = JSON.parse(await res.text());
+      const parsed: { detail?: unknown } = JSON.parse(await res.text());
       detail = typeof parsed.detail === "string" ? parsed.detail : "";
     } catch {
       detail = "";
     }
     throw new Error(detail || `${path} failed: ${res.status}`);
   }
-  return res.json();
+  return res.json() as Promise<T>;
 }
 
 export interface RaceInfo {
@@ -130,26 +130,6 @@ export interface WhatIfResponse {
   perActionNotes: Record<string, string>; // honesty labels per action
 }
 
-interface PitTimingsRaw {
-  current_win_probability: number;
-  best_option_label: string;
-  options: {
-    label: string;
-    laps_from_now: number;
-    win_probability: number;
-    change_points: number;
-  }[];
-}
-
-interface WhatIfRaw {
-  verdict: string;
-  actions_applied: WhatIfAction[];
-  current_win_probability: number;
-  simulated_win_probability: number;
-  change_points: number;
-  per_action_notes?: Record<string, string>;
-}
-
 // NEW: evaluation metrics served by GET /api/model-metrics (written by train_model.py)
 export interface ModelMetrics {
   test_year: number;
@@ -166,8 +146,32 @@ export interface ModelMetrics {
   };
 }
 
+// FIX: raw wire-format shapes for endpoints whose JSON keys are snake_case.
+// Typed explicitly instead of `any` — same runtime behavior, zero lint errors.
+interface RawPitTimingOption {
+  label: string;
+  laps_from_now: number;
+  win_probability: number;
+  change_points: number;
+}
+
+interface RawSimulateResponse {
+  current_win_probability: number;
+  best_option_label: string;
+  options: RawPitTimingOption[];
+}
+
+interface RawWhatIfResponse {
+  verdict: string;
+  actions_applied: WhatIfAction[];
+  current_win_probability: number;
+  simulated_win_probability: number;
+  change_points: number;
+  per_action_notes?: Record<string, string>;
+}
+
 export const api = {
-  seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json()),
+  seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json() as Promise<number[]>),
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
   raceInfo: (raceId: number): Promise<RaceInfo> => getJSON("/api/race-info", { raceId }),
   drivers: (raceId: number): Promise<DriverSummary[]> => getJSON("/api/drivers", { raceId }),
@@ -180,10 +184,10 @@ export const api = {
   modelMetrics: (): Promise<ModelMetrics> =>
     fetch(`${API_URL}/api/model-metrics`).then((r) => {
       if (!r.ok) throw new Error("model metrics unavailable");
-      return r.json();
+      return r.json() as Promise<ModelMetrics>;
     }),
   simulate: (raceId: number, driverId: number, lap: number): Promise<SimulateResponse> =>
-    getJSON<PitTimingsRaw>("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw) => ({
+    getJSON<RawSimulateResponse>("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw) => ({
       currentWinProbability: raw.current_win_probability,
       bestOptionLabel: raw.best_option_label,
       options: raw.options.map((o) => ({
@@ -194,7 +198,7 @@ export const api = {
       })),
     })),
   whatIf: (raceId: number, driverId: number, lap: number, actions: WhatIfAction[]): Promise<WhatIfResponse> =>
-    getJSON<WhatIfRaw>("/api/simulate/what-if", { raceId, driverId, lap, actions: actions.join(",") }).then((raw) => ({
+    getJSON<RawWhatIfResponse>("/api/simulate/what-if", { raceId, driverId, lap, actions: actions.join(",") }).then((raw) => ({
       verdict: raw.verdict,
       actionsApplied: raw.actions_applied,
       currentWinProbability: raw.current_win_probability,

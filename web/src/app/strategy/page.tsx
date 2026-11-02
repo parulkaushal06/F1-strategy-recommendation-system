@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
@@ -50,13 +50,16 @@ function StrategyDashboardInner() {
   const [data, setData] = useState<StrategyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // FIX #2: useRef instead of state — one-shot flag that must not trigger a re-render
+  const initializedFromQuery = useRef(false);
   const [whatIfActions, setWhatIfActions] = useState<WhatIfAction[]>([]);
-  const [rawWhatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
+  const [whatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
   const [whatIfLoading, setWhatIfLoading] = useState(false);
-  const [rawWhatIfError, setWhatIfError] = useState<string | null>(null);
+  const [whatIfError, setWhatIfError] = useState<string | null>(null);
   // REPLAY: playback state. replaySpeed 1x = one lap every 3 seconds.
   const [replaying, setReplaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
+  
   // EVAL: model evaluation metrics for the bottom strip (strip hides itself if unavailable)
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
 
@@ -72,16 +75,18 @@ function StrategyDashboardInner() {
 
   // Races for the selected season -> honor ?raceId= from a deep link once, then
   // default to Belgian GP if present, else first
+  // FIX #2: initializedFromQuery is now a ref; searchParams is a dep so the eslint-disable is gone.
   useEffect(() => {
     api.races(season).then((list) => {
       setRaces(list);
       const queryRaceId = searchParams.get("raceId");
-      if (queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
+      if (!initializedFromQuery.current && queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
         setRaceId(Number(queryRaceId));
       } else {
         const belgian = list.find((r) => r.name.includes("Belgian"));
         setRaceId((belgian ?? list[0])?.raceId ?? null);
       }
+      initializedFromQuery.current = true;
     }).catch(() => setError("Failed to load races"));
   }, [season, searchParams]);
 
@@ -104,35 +109,30 @@ function StrategyDashboardInner() {
     }).catch(() => setError("Failed to load lap range"));
   }, [raceId, driverId]);
 
-  // REPLAY: playback is tied to one race+driver run — stop it if the selection changes
-  const selectionKey = `${raceId}:${driverId}`;
-  const [replaySelection, setReplaySelection] = useState(selectionKey);
-  if (replaySelection !== selectionKey) {
-    setReplaySelection(selectionKey);
-    setReplaying(false);
-  }
+  // FIX #1: playback reset moved out of an effect — it now runs inside the
+  // race/driver onChange handlers (see the <select> elements below), which
+  // the lint rule allows (event handlers, not effects).
 
-  // Debounced fetch of the actual strategy snapshot as the lap slider moves
   useEffect(() => {
-    if (raceId == null || driverId == null) return;
-    const handle = setTimeout(() => {
-      setLoading(true);
-      api.strategy(raceId, driverId, lap)
-        .then((res) => { setData(res); setError(null); })
-        .catch((e) => setError(String(e.message ?? e)))
-        .finally(() => setLoading(false));
-    }, 120);
-    return () => clearTimeout(handle);
-  }, [raceId, driverId, lap]);
+  if (raceId == null || driverId == null) return;
+  const handle = setTimeout(() => {
+    setLoading(true);                  // ✅ inside timer callback
+    api.strategy(raceId, driverId, lap)
+      .then((res) => { setData(res); setError(null); })
+      .catch((e) => setError(String(e.message ?? e)))
+      .finally(() => setLoading(false));
+  }, 120);
+  return () => clearTimeout(handle);
+}, [raceId, driverId, lap]);
 
   // REPLAY engine: advance one lap per tick, but only after the current lap's
   // strategy response has settled — every data/arrival change resets this timer,
   // so a slow server delays playback instead of piling up overlapping requests.
-  useEffect(() => {
+    useEffect(() => {
     if (!replaying || !data || error) return;
     const intervalMs = Math.round(3000 / replaySpeed);
     const handle = setTimeout(() => {
-      if (lap >= maxLap) {
+      if (lap >= maxLap) {                   
         setReplaying(false);
         return;
       }
@@ -144,22 +144,35 @@ function StrategyDashboardInner() {
   // What-if simulation: refetch when selected actions or race state change.
   // REPLAY: paused during playback (it would double the request rate per lap);
   // it refetches once for the current lap as soon as replay stops.
-  const whatIfActive = raceId != null && driverId != null && whatIfActions.length > 0;
-  const whatIfResult = whatIfActive ? rawWhatIfResult : null;
-  const whatIfError = whatIfActive ? rawWhatIfError : null;
+  // FIX #4: removed the synchronous setWhatIfResult(null)/setWhatIfError(null)
+  // branch. Stale results are hidden during render via `showWhatIf` below.
+  const isLeader = data?.meta.position === 1;
+  const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
 
-  useEffect(() => {
-    if (raceId == null || driverId == null || whatIfActions.length === 0) return;
+  // FIX #5: derive the "effective" action list during render instead of mutating
+  // state inside an effect. Impossible calls are filtered out before use.
+  const effectiveWhatIfActions = useMemo(
+    () =>
+      whatIfActions.filter((a) => {
+        if (a === "overtake" && isLeader) return false;
+        if (a === "drs" && (isLeader || drsAlreadyOn)) return false;
+        return true;
+      }),
+    [whatIfActions, isLeader, drsAlreadyOn]
+  );
+
+    useEffect(() => {
+    if (raceId == null || driverId == null || effectiveWhatIfActions.length === 0) return;
     if (replaying) return;
     const handle = setTimeout(() => {
       setWhatIfLoading(true);
-      api.whatIf(raceId, driverId, lap, whatIfActions)
+      api.whatIf(raceId, driverId, lap, effectiveWhatIfActions)
         .then((res) => { setWhatIfResult(res); setWhatIfError(null); })
         .catch((e) => { setWhatIfError(String(e.message ?? e)); setWhatIfResult(null); })
         .finally(() => setWhatIfLoading(false));
     }, 120);
     return () => clearTimeout(handle);
-  }, [raceId, driverId, lap, whatIfActions, replaying]);
+  }, [raceId, driverId, lap, effectiveWhatIfActions, replaying]);
 
   const driver = useMemo(() => drivers.find((d) => d.driverId === driverId), [drivers, driverId]);
   const circuit = useMemo(() => (data ? getCircuitData(data.meta.circuitName) : null), [data]);
@@ -194,16 +207,15 @@ function StrategyDashboardInner() {
     );
   };
 
-  const isLeader = data?.meta.position === 1;
-  const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
-  // Actions that are physically impossible in the current race state:
-  // OVERTAKE while leading, DRS while leading, DRS when it is already active.
+  // FIX #5 (part 2): the old "drop impossible actions" effect is gone.
+  // `effectiveWhatIfActions` above replaces it without any setState-in-effect.
   const isActionDisabled = (action: WhatIfAction) =>
     (action === "overtake" && isLeader) ||
     (action === "drs" && (isLeader || drsAlreadyOn));
 
-  const allowedWhatIfActions = whatIfActions.filter((a) => !isActionDisabled(a));
-  if (allowedWhatIfActions.length !== whatIfActions.length) setWhatIfActions(allowedWhatIfActions);
+  // FIX #4 (part 2): hide stale what-if results during render when there are no
+  // active actions or while replaying, instead of clearing them via setState.
+  const showWhatIf = effectiveWhatIfActions.length > 0 && !replaying;
 
   return (
     <>
@@ -221,7 +233,12 @@ function StrategyDashboardInner() {
           </div>
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">RACE</span>
-            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
+            {/* FIX #1: stop replay when the race changes (event handler, not an effect) */}
+            <select
+              className="btn !py-2 max-w-full truncate"
+              value={raceId ?? ""}
+              onChange={(e) => { setReplaying(false); setRaceId(Number(e.target.value)); }}
+            >
               {races.map((r) => (
                 <option key={r.raceId} value={r.raceId}>{r.name}</option>
               ))}
@@ -229,7 +246,12 @@ function StrategyDashboardInner() {
           </div>
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">DRIVER</span>
-            <select className="btn !py-2 max-w-full truncate" value={driverId ?? ""} onChange={(e) => setDriverId(Number(e.target.value))}>
+            {/* FIX #1: stop replay when the driver changes (event handler, not an effect) */}
+            <select
+              className="btn !py-2 max-w-full truncate"
+              value={driverId ?? ""}
+              onChange={(e) => { setReplaying(false); setDriverId(Number(e.target.value)); }}
+            >
               {drivers.map((d) => (
                 <option key={d.driverId} value={d.driverId}>{d.code} · {d.name}</option>
               ))}
@@ -407,7 +429,7 @@ function StrategyDashboardInner() {
           {/* Action chips */}
           <div className="flex flex-wrap gap-2 mb-6">
             {(["pit", "push", "attack", "drs", "overtake"] as WhatIfAction[]).map((action) => {
-              const active = whatIfActions.includes(action);
+              const active = effectiveWhatIfActions.includes(action);
               const disabled = isActionDisabled(action);
               return (
                 <button
@@ -438,10 +460,10 @@ function StrategyDashboardInner() {
             })}
           </div>
 
-          {whatIfLoading && <div className="text-[12px] text-[color:var(--ink-muted)] mt-2">simulating…</div>}
-          {whatIfError && <div className="text-[13px] mt-2" style={{ color: "var(--accent)" }}>{whatIfError}</div>}
+          {whatIfLoading && showWhatIf && <div className="text-[12px] text-[color:var(--ink-muted)] mt-2">simulating…</div>}
+          {whatIfError && showWhatIf && <div className="text-[13px] mt-2" style={{ color: "var(--accent)" }}>{whatIfError}</div>}
 
-          {whatIfResult && !whatIfLoading && (
+          {whatIfResult && showWhatIf && !whatIfLoading && (
             <>
               {/* Big NOW -> IF YOU DO comparison */}
               <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-4 sm:gap-8 max-w-[560px]">
@@ -489,7 +511,7 @@ function StrategyDashboardInner() {
             </>
           )}
 
-          {!whatIfResult && !whatIfLoading && !whatIfError && (
+          {!showWhatIf && !whatIfLoading && !whatIfError && (
             <div className="text-[13px] text-[color:var(--ink-secondary)] mt-2">
               Pick one or more actions — e.g. <span className="mono">DRS + OVERTAKE</span> — to test your own hypothesis for this exact race state. Impossible calls (DRS while leading) are disabled, not faked.
             </div>

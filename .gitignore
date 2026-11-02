@@ -19,3 +19,9 @@ models/*.pkl
 
 .pytest_cache/
 racecraft-data.tar.gz
+
+
+# web/src/data/ is app source (circuit maps, standings) — must be tracked
+!web/src/data/
+!web/src/data/**/*.json
+!web/src/data/**/*.ts

@@ -1,0 +1,57 @@
+{
+  "after_round": 11,
+  "drivers": [
+    {
+      "name": "Max Verstappen",
+      "points": 281,
+      "position": 1
+    },
+    {
+      "name": "Sergio P\u00e9rez",
+      "points": 171,
+      "position": 2
+    },
+    {
+      "name": "Fernando Alonso",
+      "points": 139,
+      "position": 3
+    },
+    {
+      "name": "Lewis Hamilton",
+      "points": 133,
+      "position": 4
+    },
+    {
+      "name": "George Russell",
+      "points": 90,
+      "position": 5
+    }
+  ],
+  "constructors": [
+    {
+      "name": "Red Bull",
+      "points": 452,
+      "position": 1
+    },
+    {
+      "name": "Mercedes",
+      "points": 223,
+      "position": 2
+    },
+    {
+      "name": "Aston Martin",
+      "points": 184,
+      "position": 3
+    },
+    {
+      "name": "Ferrari",
+      "points": 167,
+      "position": 4
+    },
+    {
+      "name": "McLaren",
+      "points": 87,
+      "position": 5
+    }
+  ]
+}
