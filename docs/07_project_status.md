@@ -120,13 +120,14 @@
 
 - [ ] Wire SHAP per-prediction explanations into the dashboard UI (currently only
       exists in the modeling notebook)
-- [ ] Deploy: frontend to Vercel, backend to Render/Railway — get a live demo link
-- [ ] Set up GitHub Actions CI (lint + type-check + tests on every push)
+- [x] Deploy: frontend to Vercel, backend to Render (Docker) — live demo link in README
+- [x] Set up GitHub Actions CI (tests, type-check, build, lint on every push)
+- [x] Make the frontend lint step a hard gate (lint now blocks CI on failure)
 - [ ] Add error handling and logging to the data pipeline scripts
       (`merge_datasets.py`, `build_features.py`, `clean_data.py`,
       `train_model.py`) to match the level of robustness now in `src/api/main.py`
-- [ ] Formalize cross-validation across multiple seasons into a proper,
-      repeatable script (the walk-forward checks so far were done manually)
+- [x] Formalize cross-validation across multiple seasons into a repeatable
+      script (`src/features/cross_validate.py`, results in `reports/`)
 
 ## Design decisions worth highlighting in an interview / write-up
 

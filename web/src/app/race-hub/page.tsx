@@ -8,58 +8,41 @@ import Footer from "@/components/Footer";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
 import seasonCalendar from "@/data/season_2023.json";
-import { api, type RaceSummary } from "@/lib/api";
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-
-interface RaceInfo {
-  raceId: number;
-  year: number;
-  round: number;
-  name: string;
-  circuitName: string;
-  totalLaps: number;
-}
+import { api, type RaceInfo, type RaceSummary } from "@/lib/api";
 
 function RaceHubInner() {
   const searchParams = useSearchParams();
-  const [seasons, setSeasons] = useState<number[]>([]);
-  const [season, setSeason] = useState<number>(2023);
+  const [season] = useState<number>(2023);
   const [races, setRaces] = useState<RaceSummary[]>([]);
   const [raceId, setRaceId] = useState<number | null>(null);
   const [info, setInfo] = useState<RaceInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [initializedFromQuery, setInitializedFromQuery] = useState(false);
-
-  useEffect(() => {
-    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
-  }, []);
 
   useEffect(() => {
     api.races(season).then((list) => {
       setRaces(list);
       const queryRaceId = searchParams.get("raceId");
-      if (!initializedFromQuery && queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
+      if (queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
         setRaceId(Number(queryRaceId));
       } else {
         const nextRaceId = seasonCalendar.find((r) => r.status === "next")?.raceId;
         const fallback = list.find((r) => r.raceId === nextRaceId);
         setRaceId((fallback ?? list[0])?.raceId ?? null);
       }
-      setInitializedFromQuery(true);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }).catch(() => setError("Failed to load races"));
-  }, [season]);
+  }, [season, searchParams]);
 
   useEffect(() => {
     if (raceId == null) return;
-    setInfoLoading(true);
-    fetch(`${API_URL}/api/race-info?raceId=${raceId}`)
-      .then((r) => r.json())
-      .then(setInfo)
-      .catch(() => setError("Failed to load race info"))
-      .finally(() => setInfoLoading(false));
+    const handle = setTimeout(() => {
+      setInfoLoading(true);
+      api.raceInfo(raceId)
+        .then((data) => { setInfo(data); setError(null); })
+        .catch(() => setError("Failed to load race info"))
+        .finally(() => setInfoLoading(false));
+    }, 0);
+    return () => clearTimeout(handle);
   }, [raceId]);
 
   const circuit = useMemo(() => (info ? getCircuitData(info.circuitName) : null), [info]);
@@ -71,17 +54,11 @@ function RaceHubInner() {
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-6">
           <div className="flex items-center gap-2">
-            <span className="eyebrow shrink-0">SEASON</span>
-            <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
-            {races.length === 0
-            ? <option value="">Loading races…</option>
-            : races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
-            </select>
-          </div>
-          <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">RACE</span>
             <select className="btn !py-2 max-w-full truncate" value={raceId ?? ""} onChange={(e) => setRaceId(Number(e.target.value))}>
-              {races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
+              {races.length === 0
+                ? <option value="">Loading races…</option>
+                : races.map((r) => <option key={r.raceId} value={r.raceId}>{r.name}</option>)}
             </select>
           </div>
         </div>

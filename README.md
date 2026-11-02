@@ -86,10 +86,8 @@ F1-strategy-recommendation-system/
 ├── tests/                  # test suite
 ├── docs/                   # full project documentation
 ├── reports/                # figures and write-ups
-├── backtest_pit_strategy.py   # pit strategy backtest
-├── tune_drs_threshold.py      # DRS threshold tuning
-├── validate_drs_proxy.py      # DRS proxy validation
-├── test_race_craft.py         # race-craft checks
+├── tools/                     # backtest, DRS validation/tuning, race-craft checks, data bundle
+├── src/features/cross_validate.py  # multi-season cross-validation (2018–2024)
 ├── config.yaml
 ├── start.sh
 ├── Dockerfile
@@ -171,11 +169,9 @@ Details: [`docs/09_model_results.md`](docs/09_model_results.md) and [`docs/10_st
 
 ## 🔮 Future Improvements
 
-- Remove the duplicate feature (`gap_to_leader_ms` and `gap_to_leader_s` carry the same signal)
-- Multi-season cross-validation reporting mean ± std AUC
-- Hyperparameter tuning (`max_depth`, `min_samples_leaf`, `n_estimators`)
+- Systematic hyperparameter search (`max_depth`, `min_samples_leaf`, `n_estimators` are currently hand-picked)
 - New signal: driver/constructor form, qualifying gap-to-pole, tire compound and weather beyond the current OpenF1 subset
-- Validate `drs_zone_proxy` against the real DRS data collected for 3 races
+- Validate `drs_zone_proxy` against more real DRS telemetry (currently 2 races)
 - Extend OpenF1 telemetry beyond 2023
 - Real circuit maps for the remaining 4 circuits and tighter alignment for Spielberg, Mugello and Baku
 

@@ -50,11 +50,10 @@ function StrategyDashboardInner() {
   const [data, setData] = useState<StrategyResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [initializedFromQuery, setInitializedFromQuery] = useState(false);
   const [whatIfActions, setWhatIfActions] = useState<WhatIfAction[]>([]);
-  const [whatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
+  const [rawWhatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
   const [whatIfLoading, setWhatIfLoading] = useState(false);
-  const [whatIfError, setWhatIfError] = useState<string | null>(null);
+  const [rawWhatIfError, setWhatIfError] = useState<string | null>(null);
   // REPLAY: playback state. replaySpeed 1x = one lap every 3 seconds.
   const [replaying, setReplaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
@@ -77,16 +76,14 @@ function StrategyDashboardInner() {
     api.races(season).then((list) => {
       setRaces(list);
       const queryRaceId = searchParams.get("raceId");
-      if (!initializedFromQuery && queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
+      if (queryRaceId && list.some((r) => r.raceId === Number(queryRaceId))) {
         setRaceId(Number(queryRaceId));
       } else {
         const belgian = list.find((r) => r.name.includes("Belgian"));
         setRaceId((belgian ?? list[0])?.raceId ?? null);
       }
-      setInitializedFromQuery(true);
-      // eslint-disable-next-line react-hooks/exhaustive-deps
     }).catch(() => setError("Failed to load races"));
-  }, [season]);
+  }, [season, searchParams]);
 
   // Drivers for the selected race -> default to VER if present, else first
   useEffect(() => {
@@ -108,15 +105,18 @@ function StrategyDashboardInner() {
   }, [raceId, driverId]);
 
   // REPLAY: playback is tied to one race+driver run — stop it if the selection changes
-  useEffect(() => {
+  const selectionKey = `${raceId}:${driverId}`;
+  const [replaySelection, setReplaySelection] = useState(selectionKey);
+  if (replaySelection !== selectionKey) {
+    setReplaySelection(selectionKey);
     setReplaying(false);
-  }, [raceId, driverId]);
+  }
 
   // Debounced fetch of the actual strategy snapshot as the lap slider moves
   useEffect(() => {
     if (raceId == null || driverId == null) return;
-    setLoading(true);
     const handle = setTimeout(() => {
+      setLoading(true);
       api.strategy(raceId, driverId, lap)
         .then((res) => { setData(res); setError(null); })
         .catch((e) => setError(String(e.message ?? e)))
@@ -130,27 +130,29 @@ function StrategyDashboardInner() {
   // so a slow server delays playback instead of piling up overlapping requests.
   useEffect(() => {
     if (!replaying || !data || error) return;
-    if (lap >= maxLap) {
-      setReplaying(false);
-      return;
-    }
     const intervalMs = Math.round(3000 / replaySpeed);
-    const handle = setTimeout(() => setLap((prev) => Math.min(prev + 1, maxLap)), intervalMs);
+    const handle = setTimeout(() => {
+      if (lap >= maxLap) {
+        setReplaying(false);
+        return;
+      }
+      setLap((prev) => Math.min(prev + 1, maxLap));
+    }, intervalMs);
     return () => clearTimeout(handle);
   }, [replaying, data, lap, maxLap, replaySpeed, error]);
 
   // What-if simulation: refetch when selected actions or race state change.
   // REPLAY: paused during playback (it would double the request rate per lap);
   // it refetches once for the current lap as soon as replay stops.
+  const whatIfActive = raceId != null && driverId != null && whatIfActions.length > 0;
+  const whatIfResult = whatIfActive ? rawWhatIfResult : null;
+  const whatIfError = whatIfActive ? rawWhatIfError : null;
+
   useEffect(() => {
-    if (raceId == null || driverId == null || whatIfActions.length === 0) {
-      setWhatIfResult(null);
-      setWhatIfError(null);
-      return;
-    }
+    if (raceId == null || driverId == null || whatIfActions.length === 0) return;
     if (replaying) return;
-    setWhatIfLoading(true);
     const handle = setTimeout(() => {
+      setWhatIfLoading(true);
       api.whatIf(raceId, driverId, lap, whatIfActions)
         .then((res) => { setWhatIfResult(res); setWhatIfError(null); })
         .catch((e) => { setWhatIfError(String(e.message ?? e)); setWhatIfResult(null); })
@@ -192,26 +194,16 @@ function StrategyDashboardInner() {
     );
   };
 
-  // Drop actions that are physically impossible in the current race state:
-  // OVERTAKE while leading, DRS while leading, DRS when it is already active.
-  useEffect(() => {
-    const isLeader = data?.meta.position === 1;
-    const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
-    setWhatIfActions((prev) => {
-      const next = prev.filter((a) => {
-        if (a === "overtake" && isLeader) return false;
-        if (a === "drs" && (isLeader || drsAlreadyOn)) return false;
-        return true;
-      });
-      return next.length === prev.length ? prev : next;
-    });
-  }, [data?.meta.position, data?.current.drsRecommendation]);
-
   const isLeader = data?.meta.position === 1;
   const drsAlreadyOn = data?.current.drsRecommendation.includes("AVAILABLE") ?? false;
+  // Actions that are physically impossible in the current race state:
+  // OVERTAKE while leading, DRS while leading, DRS when it is already active.
   const isActionDisabled = (action: WhatIfAction) =>
     (action === "overtake" && isLeader) ||
     (action === "drs" && (isLeader || drsAlreadyOn));
+
+  const allowedWhatIfActions = whatIfActions.filter((a) => !isActionDisabled(a));
+  if (allowedWhatIfActions.length !== whatIfActions.length) setWhatIfActions(allowedWhatIfActions);
 
   return (
     <>

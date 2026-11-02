@@ -130,6 +130,26 @@ export interface WhatIfResponse {
   perActionNotes: Record<string, string>; // honesty labels per action
 }
 
+interface PitTimingsRaw {
+  current_win_probability: number;
+  best_option_label: string;
+  options: {
+    label: string;
+    laps_from_now: number;
+    win_probability: number;
+    change_points: number;
+  }[];
+}
+
+interface WhatIfRaw {
+  verdict: string;
+  actions_applied: WhatIfAction[];
+  current_win_probability: number;
+  simulated_win_probability: number;
+  change_points: number;
+  per_action_notes?: Record<string, string>;
+}
+
 // NEW: evaluation metrics served by GET /api/model-metrics (written by train_model.py)
 export interface ModelMetrics {
   test_year: number;
@@ -163,10 +183,10 @@ export const api = {
       return r.json();
     }),
   simulate: (raceId: number, driverId: number, lap: number): Promise<SimulateResponse> =>
-    getJSON("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw: any) => ({
+    getJSON<PitTimingsRaw>("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw) => ({
       currentWinProbability: raw.current_win_probability,
       bestOptionLabel: raw.best_option_label,
-      options: raw.options.map((o: any) => ({
+      options: raw.options.map((o) => ({
         label: o.label,
         lapsFromNow: o.laps_from_now,
         winProbability: o.win_probability,
@@ -174,7 +194,7 @@ export const api = {
       })),
     })),
   whatIf: (raceId: number, driverId: number, lap: number, actions: WhatIfAction[]): Promise<WhatIfResponse> =>
-    getJSON("/api/simulate/what-if", { raceId, driverId, lap, actions: actions.join(",") }).then((raw: any) => ({
+    getJSON<WhatIfRaw>("/api/simulate/what-if", { raceId, driverId, lap, actions: actions.join(",") }).then((raw) => ({
       verdict: raw.verdict,
       actionsApplied: raw.actions_applied,
       currentWinProbability: raw.current_win_probability,

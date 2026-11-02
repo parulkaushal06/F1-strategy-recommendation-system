@@ -23,8 +23,10 @@ web/ (Next.js)  --HTTP-->  src/api/main.py (FastAPI)  -->  StrategyEngine + mode
 The frontend can't load a `.pkl` file itself (it runs in the browser), so the
 FastAPI layer is a thin wrapper: it loads the model, feature list, and
 `StrategyEngine` once at startup, and exposes them as JSON endpoints
-(`/api/seasons`, `/api/races`, `/api/drivers`, `/api/laps`, `/api/strategy`,
-`/api/compare`). See `src/api/main.py` for the full endpoint list.
+(`/api/seasons`, `/api/races`, `/api/race-info`, `/api/drivers`, `/api/laps`,
+`/api/strategy`, `/api/compare`, `/api/explain`, `/api/simulate/pit-timings`,
+`/api/simulate/what-if`, `/api/model-metrics`, plus `/health`). See
+`src/api/main.py` for the full list.
 
 ## Pages
 
@@ -92,7 +94,6 @@ frontend calls `http://localhost:8000` directly by default, configurable via
   once for the whole field rather than looping `recommend_full()` per driver
   — see the note in `src/api/main.py` and `09_model_results.md` for the
   speed impact this had.
-- CORS is currently restricted to `localhost:3000`/`3100` in
-  `src/api/main.py` — this needs to become environment-driven before
-  deploying anywhere public (see `12_industrial_roadmap.md` for the full
-  deployment checklist).
+- CORS origins are read from the `RACECRAFT_CORS_ORIGINS` environment variable
+  in `src/api/main.py` (defaults to `localhost:3000`/`3100`). Set it to the
+  Vercel URL in the backend's hosting settings.

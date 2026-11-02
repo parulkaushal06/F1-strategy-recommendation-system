@@ -32,7 +32,6 @@ export default function DriverComparison() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    setRacesLoading(true);
     api.races(season).then((list) => {
       setRaces(list);
       const belgian = list.find((r) => r.name.includes("Belgian"));
@@ -43,15 +42,18 @@ export default function DriverComparison() {
 
   useEffect(() => {
     if (raceId == null) return;
-    setDriversLoading(true);
-    api.drivers(raceId).then((list) => {
-      setDrivers(list);
-      const ver = list.find((d) => d.code === "VER");
-      const ham = list.find((d) => d.code === "HAM");
-      setDriverAId((ver ?? list[0])?.driverId ?? null);
-      setDriverBId((ham ?? list[1])?.driverId ?? null);
-    }).catch(() => setError("Failed to load drivers"))
-      .finally(() => setDriversLoading(false));
+    const handle = setTimeout(() => {
+      setDriversLoading(true);
+      api.drivers(raceId).then((list) => {
+        setDrivers(list);
+        const ver = list.find((d) => d.code === "VER");
+        const ham = list.find((d) => d.code === "HAM");
+        setDriverAId((ver ?? list[0])?.driverId ?? null);
+        setDriverBId((ham ?? list[1])?.driverId ?? null);
+      }).catch(() => setError("Failed to load drivers"))
+        .finally(() => setDriversLoading(false));
+    }, 0);
+    return () => clearTimeout(handle);
   }, [raceId]);
 
   useEffect(() => {
@@ -64,8 +66,8 @@ export default function DriverComparison() {
 
   useEffect(() => {
     if (raceId == null || driverAId == null || driverBId == null || driverAId === driverBId) return;
-    setCompareLoading(true);
     const handle = setTimeout(() => {
+      setCompareLoading(true);
       api.compare(raceId, driverAId, driverBId, lap)
         .then((res) => { setData(res); setError(null); })
         .catch((e) => setError(String(e.message ?? e)))

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { analyzeTrack, sampleRange, type TrackAnalysis } from "@/lib/trackAnalysis";
+import { useMemo, useState } from "react";
+import { analyzeTrack, sampleRange } from "@/lib/trackAnalysis";
 
 interface CircuitTrackProps {
   pathD: string;
@@ -30,53 +30,49 @@ export default function CircuitTrack({
   totalLaps,
   className,
 }: CircuitTrackProps) {
-  const pathRef = useRef<SVGPathElement>(null);
-  const [analysis, setAnalysis] = useState<TrackAnalysis | null>(null);
-  const [drsPolylines, setDrsPolylines] = useState<string[]>([]);
-  const [startFinishLine, setStartFinishLine] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null);
+  const [pathEl, setPathEl] = useState<SVGPathElement | null>(null);
+  const analysis = useMemo(
+    () => (pathEl ? analyzeTrack(pathEl, { numCorners }) : null),
+    [pathEl, numCorners]
+  );
+  const drsPolylines = useMemo(() => {
+    if (!pathEl || !analysis || !showDrsZones) return [];
+    return [analysis.drs1, analysis.drs2].map((zone) =>
+      sampleRange(pathEl, analysis.total, zone.fromL, zone.len)
+        .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
+        .join(" ")
+    );
+  }, [pathEl, analysis, showDrsZones]);
 
-  useEffect(() => {
-    if (!pathRef.current) return;
-    const path = pathRef.current;
-    const a = analyzeTrack(path, { numCorners });
-    setAnalysis(a);
-    if (showDrsZones) {
-      const zones = [a.drs1, a.drs2].map((zone) =>
-        sampleRange(path, a.total, zone.fromL, zone.len)
-          .map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`)
-          .join(" ")
-      );
-      setDrsPolylines(zones);
-    }
-    if (showStartFinishMark) {
-      // These circuit SVGs conventionally start their path at (or right next to) the
-      // real start/finish line, so a perpendicular tick at length 0 lines up correctly
-      // for any circuit's own outline — unlike a hardcoded decoration copied from one
-      // specific track's file, which wouldn't generalize to the others.
-      const p0 = path.getPointAtLength(0);
-      const p1 = path.getPointAtLength(Math.min(3, a.total * 0.01));
-      const dx = p1.x - p0.x, dy = p1.y - p0.y;
-      const len = Math.hypot(dx, dy) || 1;
-      const px = -dy / len, py = dx / len; // perpendicular to travel direction
-      const halfWidth = 12;
-      setStartFinishLine({
-        x1: p0.x - px * halfWidth, y1: p0.y - py * halfWidth,
-        x2: p0.x + px * halfWidth, y2: p0.y + py * halfWidth,
-      });
-    }
-    // pathD is the only thing that should trigger re-analysis
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pathD, numCorners, showDrsZones, showStartFinishMark]);
+  const startFinishLine = useMemo(() => {
+    if (!pathEl || !analysis || !showStartFinishMark) return null;
+    // These circuit SVGs conventionally start their path at (or right next to) the
+    // real start/finish line, so a perpendicular tick at length 0 lines up correctly
+    // for any circuit's own outline — unlike a hardcoded decoration copied from one
+    // specific track's file, which wouldn't generalize to the others.
+    const p0 = pathEl.getPointAtLength(0);
+    const p1 = pathEl.getPointAtLength(Math.min(3, analysis.total * 0.01));
+    const dx = p1.x - p0.x, dy = p1.y - p0.y;
+    const len = Math.hypot(dx, dy) || 1;
+    const px = -dy / len, py = dx / len; // perpendicular to travel direction
+    const halfWidth = 12;
+    return {
+      x1: p0.x - px * halfWidth, y1: p0.y - py * halfWidth,
+      x2: p0.x + px * halfWidth, y2: p0.y + py * halfWidth,
+    };
+  }, [pathEl, analysis, showStartFinishMark]);
 
   const carPoint =
-    analysis && lap != null && totalLaps && pathRef.current
-      ? pathRef.current.getPointAtLength(((lap - 1) / (totalLaps - 1)) * analysis.total)
+    analysis && lap != null && totalLaps && pathEl
+      ? pathEl.getPointAtLength(((lap - 1) / (totalLaps - 1)) * analysis.total)
       : null;
 
   return (
     <svg viewBox={viewBox} className={className}>
+      {/* key remounts the outline when its path changes, so the ref and analysis follow the new geometry */}
       <path
-        ref={pathRef}
+        key={pathD}
+        ref={setPathEl}
         d={pathD}
         fill="none"
         stroke="var(--surface-3)"
