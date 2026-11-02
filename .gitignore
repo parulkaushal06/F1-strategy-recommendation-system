@@ -15,3 +15,7 @@ web/out/
 
 data/
 models/*.pkl
+
+
+.pytest_cache/
+racecraft-data.tar.gz

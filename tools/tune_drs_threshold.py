@@ -26,7 +26,7 @@ import sys
 import pandas as pd
 
 sys.path.insert(0, ".")
-from validate_drs_proxy import (
+from tools.validate_drs_proxy import (
     CAR_DATA_DIR, CLEANED_PATH, bucket_telemetry_into_laps,
     load_laps_timing, summarize_per_lap,
 )
