@@ -1,27 +1,32 @@
+# Python
 venv/
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Secrets / local config
 .env
+.env.*
+!.env.example
+
+# Editor / OS
 .vscode/
-cache_fastf1/
+.idea/
+.DS_Store
+
+# Logs and caches
 *.log
+cache_fastf1/
 
 # Next.js app
 node_modules/
 web/.next/
 web/out/
+.vercel/
 
-
-data/
+# Data and models (not committed; src/data/ IS code and must be tracked)
+/data/
 models/*.pkl
-
-
-.pytest_cache/
 racecraft-data.tar.gz
-
-
-# web/src/data/ is app source (circuit maps, standings) — must be tracked
-!web/src/data/
-!web/src/data/**/*.json
-!web/src/data/**/*.ts
