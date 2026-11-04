@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import ApiWakeBanner from "@/components/ApiWakeBanner";
 import { api, type RaceSummary, type DriverSummary, type CompareResponse } from "@/lib/api";
 
 function buildPolyline(history: { lap: number; winProb: number }[], w = 900, h = 300, pad = 20) {
@@ -44,7 +45,7 @@ export default function DriverComparison() {
         const belgian = list.find((r) => r.name.includes("Belgian"));
         setRaceId((belgian ?? list[0])?.raceId ?? null);
       } catch {
-        if (!cancelled) setError("Could not reach the strategy API (is uvicorn running on :8000?)");
+        if (!cancelled) setError("Could not reach the strategy API. It may still be waking up (free tier), so please refresh in a minute.");
       } finally {
         if (!cancelled) setRacesLoading(false);
       }
@@ -122,9 +123,11 @@ export default function DriverComparison() {
   return (
     <>
       <Nav active="/compare" />
+      <ApiWakeBanner />
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="eyebrow mb-3">HEAD TO HEAD</div>
-        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95] mb-8">Driver Comparison</h1>
+        {/* inline margin: globals.css `h1 { margin: 0 }` is unlayered and overrides Tailwind's mb-8 */}
+        <h1 className="text-[32px] sm:text-[40px] md:text-[52px] leading-[0.95]" style={{ marginBottom: 32 }}>Driver Comparison</h1>
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-8">
           <div className="flex items-center gap-2">
             <span className="eyebrow shrink-0">RACE</span>

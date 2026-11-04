@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import ApiWakeBanner from "@/components/ApiWakeBanner";
 import CircuitTrack from "@/components/CircuitTrack";
 import season from "@/data/season_2023.json";
 import standings from "@/data/standings_2023_r11.json";
@@ -78,6 +79,7 @@ export default function SeasonHub() {
   return (
     <>
       <Nav active="/" />
+      <ApiWakeBanner />
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-14 pb-10 grid md:grid-cols-[1.1fr_0.9fr] gap-10 items-center">
         <div>
@@ -135,7 +137,7 @@ export default function SeasonHub() {
                 )}
                 {infoError && (
                   <div className="text-[13px] text-[color:var(--ink-muted)]">
-                    Couldn&apos;t reach the strategy API for live race details (is uvicorn running on :8000?)
+                    Couldn&apos;t reach the strategy API for live race details. It may still be waking up (free tier), so please refresh in a minute.
                   </div>
                 )}
               </>

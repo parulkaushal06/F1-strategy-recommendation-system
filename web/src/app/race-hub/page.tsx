@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import ApiWakeBanner from "@/components/ApiWakeBanner";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
 import seasonCalendar from "@/data/season_2023.json";
@@ -34,7 +35,7 @@ function RaceHubInner() {
   const initializedFromQuery = useRef(false);
 
   useEffect(() => {
-    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
+    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API. It may still be waking up (free tier), so please refresh in a minute."));
   }, []);
 
   // FIX: useRef + searchParams in deps; eslint-disable removed.
@@ -78,6 +79,7 @@ function RaceHubInner() {
   return (
     <>
       <Nav active="/race-hub" />
+      <ApiWakeBanner />
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-10 pb-6">
         <div className="card p-4 flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-4 mb-6">

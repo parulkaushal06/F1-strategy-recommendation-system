@@ -79,9 +79,29 @@ export interface CompareResponse {
   driverB: CompareDriverResult;
 }
 
+// The backend sleeps on a free hosting tier. While it wakes up, requests fail with a
+// network error or a 502/503/504. Retry those a few times instead of showing an error
+// straight away. Normal 4xx/5xx answers (e.g. a 404 for a retired driver) are NOT retried.
+const RETRY_STATUSES = new Set([502, 503, 504]);
+
+async function fetchWithRetry(url: string, attempts = 5, delayMs = 4000): Promise<Response> {
+  let lastError: unknown = new Error("request failed");
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const res = await fetch(url);
+      if (!RETRY_STATUSES.has(res.status)) return res;
+      lastError = new Error(`server unavailable (${res.status})`);
+    } catch (e) {
+      lastError = e;
+    }
+    if (i < attempts - 1) await new Promise((resolve) => setTimeout(resolve, delayMs));
+  }
+  throw lastError;
+}
+
 async function getJSON<T>(path: string, params: Record<string, string | number>): Promise<T> {
   const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)])));
-  const res = await fetch(`${API_URL}${path}?${qs}`);
+  const res = await fetchWithRetry(`${API_URL}${path}?${qs}`);
   if (!res.ok) {
     // Prefer the API's human-readable `detail` (e.g. "Cannot overtake: ...")
     // over a raw path+status+JSON blob.
@@ -171,7 +191,20 @@ interface RawWhatIfResponse {
 }
 
 export const api = {
-  seasons: (): Promise<number[]> => fetch(`${API_URL}/api/seasons`).then((r) => r.json() as Promise<number[]>),
+  seasons: (): Promise<number[]> => fetchWithRetry(`${API_URL}/api/seasons`).then((r) => r.json() as Promise<number[]>),
+  // Single quick check used by the "waking up" banner; never throws.
+  health: async (timeoutMs = 15000): Promise<boolean> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(`${API_URL}/health`, { signal: controller.signal });
+      return res.ok;
+    } catch {
+      return false;
+    } finally {
+      clearTimeout(timer);
+    }
+  },
   races: (year: number): Promise<RaceSummary[]> => getJSON("/api/races", { year }),
   raceInfo: (raceId: number): Promise<RaceInfo> => getJSON("/api/race-info", { raceId }),
   drivers: (raceId: number): Promise<DriverSummary[]> => getJSON("/api/drivers", { raceId }),

@@ -4,6 +4,7 @@ import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
+import ApiWakeBanner from "@/components/ApiWakeBanner";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
 // EVAL: ModelMetrics type added
@@ -65,7 +66,7 @@ function StrategyDashboardInner() {
 
   // Seasons, once
   useEffect(() => {
-    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API (is uvicorn running on :8000?)"));
+    api.seasons().then(setSeasons).catch(() => setError("Could not reach the strategy API. It may still be waking up (free tier), so please refresh in a minute."));
   }, []);
 
   // EVAL: fetched once — optional content, fails silently when metrics aren't generated yet
@@ -220,6 +221,7 @@ function StrategyDashboardInner() {
   return (
     <>
       <Nav active="/strategy" />
+      <ApiWakeBanner />
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pt-8 pb-6">
         <div className="card p-4 flex flex-col sm:flex-wrap sm:flex-row items-stretch sm:items-center gap-4">
@@ -400,7 +402,7 @@ function StrategyDashboardInner() {
           <div className="card p-5" style={{ borderLeft: `3px solid ${data ? statusColor("drs", data.current.drsRecommendation) : "var(--hairline)"}` }}>
             <div className="eyebrow mb-3">DRS</div>
             <div className="text-[15px] font-semibold mb-2">{data?.current.drsRecommendation ?? "—"}</div>
-            <div className="text-[12px] text-[color:var(--ink-secondary)]">Rule-based proxy beyond the 3 validated telemetry races.</div>
+            <div className="text-[12px] text-[color:var(--ink-secondary)]">Rule-based proxy, validated against real DRS telemetry for 2 races.</div>
           </div>
           <div className="card p-5" style={{ borderLeft: `3px solid ${data ? statusColor("ers", data.current.ersRecommendation) : "var(--hairline)"}` }}>
             <div className="eyebrow mb-3">ERS</div>
