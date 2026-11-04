@@ -1,4 +1,4 @@
-# 🏎️ RACECRAFT: F1 Strategy & Win Probability Predictor
+# RACECRAFT: F1 Strategy & Win Probability Predictor
 
 ![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-RandomForest-F7931E?logo=scikitlearn&logoColor=white)
@@ -9,13 +9,13 @@
 
 RACECRAFT analyzes historical Formula 1 races lap by lap. A calibrated Random Forest estimates each driver's **win probability**; a separate strategy engine adds transparent **pit urgency, DRS/ERS proxies, race-craft guidance and what-if simulations**. The web app replays recorded races. It is not connected to live timing and is not a pit-wall decision system.
 
-## 🔗 Live Demo
+## Live Demo
 
-**👉 [https://f1-strategy-recommendation-system.vercel.app](https://f1-strategy-recommendation-system.vercel.app/)**
+**[https://f1-strategy-recommendation-system.vercel.app](https://f1-strategy-recommendation-system.vercel.app/)**
 
 > The backend runs on Render's free tier, so the **first request after a period of inactivity can take a minute** while the service wakes up and loads its data. The site shows a "waking up" banner meanwhile; later requests are fast.
 
-## 📸 Screenshots
+## Screenshots
 
 **Strategy engine:** win-probability trend, live recommendations and feature importance (2023 Belgian GP, lap 25, Verstappen)
 
@@ -35,7 +35,7 @@ RACECRAFT analyzes historical Formula 1 races lap by lap. A calibrated Random Fo
 
 ---
 
-## 📌 What it does
+## What it does
 
 Given the state of a race (lap, position, gaps, tire age, pit history), the project produces:
 
@@ -57,7 +57,7 @@ Recommendations:
 
 *(Example output; the 68% is an illustrative value, not a model accuracy.)*
 
-## 🧠 How the recommendations are made
+## How the recommendations are made
 
 Recommendations are **not all model outputs**. Being clear about what is learned and what is rule-based:
 
@@ -73,7 +73,7 @@ Recommendations are **not all model outputs**. Being clear about what is learned
 
 **Why the pit call is not model-driven:** the model weights position and gap far more than tire features, so a simulated tire benefit never outweighs the time cost of a stop in the win-probability delta. Using that delta alone would always say "stay out", so it is shown as context only. See [`docs/10_strategy_engine.md`](docs/10_strategy_engine.md).
 
-## 🏗️ Architecture
+## Architecture
 
 ```text
 Ergast + OpenF1 → src/data pipeline → feature table → trained model
@@ -81,7 +81,7 @@ Ergast + OpenF1 → src/data pipeline → feature table → trained model
 web/ (Next.js) ← HTTP/JSON → src/api/ (FastAPI) → StrategyEngine
 ```
 
-## 📊 Results
+## Results
 
 **Data:** 320,274 lap rows (2011–2024), 42 features. Time-based split with no future leakage: train on years before 2023, calibrate on 2023, test on 2024 (26,574 rows, 5.4% winners). The saved evaluation is in `models/model_metrics.json`.
 
@@ -159,7 +159,7 @@ The middle buckets are slightly underconfident and the top two are overconfident
 - **DRS proxy vs real telemetry** (2 races, 2,161 rows): 78.1% agreement, 62.0% recall, 16.3% false positives at the tuned 1250 ms threshold.
 - **Cross-source validation:** 98.9–100% agreement between Ergast and OpenF1 on pit stops and driver codes.
 
-## 🛠️ Engineering highlights
+## Engineering highlights
 
 - **Leakage-safe evaluation:** time-based train / calibrate / test split plus walk-forward CV across 7 seasons, instead of a random split.
 - **Calibration, diagnosed and fixed:** found the raw model overconfident, fixed it with isotonic calibration (Brier 0.0424 → 0.0227), then replaced 5-fold calibration with a frozen model plus one calibration year, cutting prediction time from about 291 ms to 53 ms.
@@ -170,7 +170,7 @@ The middle buckets are slightly underconfident and the top two are overconfident
 - **Small-host friendly API:** chunked CSV loading and categorical columns to fit a 512 MB free tier, plus input validation and a global error handler.
 - **Engineering hygiene:** pytest suite on synthetic data, GitHub Actions for tests, lint, type-check and build, Docker image for the API, and a cold-start retry plus "waking up" banner in the frontend.
 
-## 🗺️ RACECRAFT dashboard
+## RACECRAFT dashboard
 
 Next.js + Tailwind app (`web/`) with five pages: **Home**, **Race Hub**, **Strategy** (win-probability trend, recommendations, field context, what-if tool, feature importance, model metrics), **Compare** (two drivers side by side) and **Results**.
 
@@ -178,7 +178,7 @@ Circuit maps are real: 31 of the 35 circuits use outlines from [julesr0y/f1-circ
 
 > Home and Results currently show static 2023 data (Belgian GP). The Strategy, Compare and Race Hub pages call the live API.
 
-## 🔌 API
+## API
 
 FastAPI service (`src/api/main.py`). Interactive docs are at `/docs` (locally `http://localhost:8000/docs`).
 
@@ -193,7 +193,7 @@ FastAPI service (`src/api/main.py`). Interactive docs are at `/docs` (locally `h
 | `GET /api/explain` | SHAP factors for one prediction |
 | `GET /api/model-metrics` | Saved training evaluation JSON |
 
-## 🧰 Tech stack
+## Tech stack
 
 | Layer | Tools |
 |---|---|
@@ -205,7 +205,7 @@ FastAPI service (`src/api/main.py`). Interactive docs are at `/docs` (locally `h
 
 **Data sources:** [Ergast/Kaggle](http://ergast.com/mrd/) (1950–2024 results; laps from 2011), [OpenF1](https://openf1.org/) (2023 laps, pits, stints, weather, real DRS), [FastF1](https://github.com/theOehrly/Fast-F1) (corner/sector telemetry).
 
-## 📂 Project structure
+## Project structure
 
 ```
 ├── src/
@@ -228,7 +228,7 @@ FastAPI service (`src/api/main.py`). Interactive docs are at `/docs` (locally `h
 
 `data/` and `models/*.pkl` are generated locally and ignored by Git.
 
-## ⚙️ Run locally
+## Run locally
 
 **Requirements:** Python 3.12 (used in CI and the backend Docker image), Node.js 22 (used in CI). Python packages are in `requirements.txt` (API-only image: `requirements-api.txt`; tests: `requirements-dev.txt`).
 
@@ -293,7 +293,7 @@ print(engine.recommend_full(row, same_lap_field_df=field))
 print(engine.simulate_what_if(row, ["pit", "push"]))
 ```
 
-## ✅ Tests & CI
+## Tests & CI
 
 ```bash
 pytest tests -v
@@ -301,14 +301,14 @@ pytest tests -v
 
 The suite builds a small synthetic dataset and model, so it runs without the production data. It includes regression tests for two real bugs found during development (the tire-age reset bug and a false "ATTACK" call for the race leader). GitHub Actions runs pytest plus frontend lint, TypeScript checking and build on pushes to `main` and on pull requests targeting `main`. Deployment is triggered through the manual CD workflow.
 
-## 🚀 Deployment
+## Deployment
 
 - **Frontend:** Vercel (auto-deploys on push).
 - **Backend:** the root `Dockerfile` and `render.yaml` run the API on Render. On start, `start.sh` downloads and extracts the archive at `DATA_URL` if the required files are missing. The archive is created by `tools/make_data_bundle.py` and must include the API's data and model files.
 - **Environment variables:** `DATA_URL` (data bundle link), `RACECRAFT_CORS_ORIGINS` (the deployed frontend origin), `NEXT_PUBLIC_API_URL` (frontend → API).
 - **Cold starts:** the free tier sleeps when idle. The frontend retries failed requests and shows a "waking up" banner; an uptime monitor on `/health` helps keep the service awake.
 
-## ⚠️ Limitations
+## Limitations
 
 - The dashboard replays historical races; there is no live telemetry feed, and this is **not a pit-wall tool**. That would need proprietary telemetry, live weather and physics-based tire models.
 - The lap-level data and saved evaluation run through 2024; Home and Results still use static 2023 content.
@@ -323,7 +323,7 @@ The suite builds a small synthetic dataset and model, so it runs without the pro
 
 Full list: [`docs/06_known_limitations.md`](docs/06_known_limitations.md).
 
-## 🔮 Future work
+## Future work
 
 - Calibrate on several seasons instead of one
 - Driver / constructor form and qualifying features, to add signal beyond position and gaps
@@ -332,7 +332,7 @@ Full list: [`docs/06_known_limitations.md`](docs/06_known_limitations.md).
 - Live (non-static) Home and Results pages
 - Real maps for the remaining 4 circuits
 
-## 📚 Documentation
+## Documentation
 
 | File | Contents |
 |---|---|
@@ -349,14 +349,14 @@ Full list: [`docs/06_known_limitations.md`](docs/06_known_limitations.md).
 | [`10_strategy_engine.md`](docs/10_strategy_engine.md) | Recommendation logic |
 | [`11_dashboard.md`](docs/11_dashboard.md) | Dashboard design |
 
-## 🙏 Sources and attribution
+## Sources and attribution
 
 Race data is sourced from Ergast/Kaggle and [OpenF1](https://openf1.org/), with corner and sector telemetry from [FastF1](https://github.com/theOehrly/Fast-F1). Circuit outline SVGs by [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg) (CC BY 4.0) are attributed in [`assets/circuits-svg/ATTRIBUTION.md`](assets/circuits-svg/ATTRIBUTION.md). This project is not affiliated with Formula 1 or the FIA.
 
-## 👤 Author
+## Author
 
 **Parul Kaushal** · [@parulkaushal06](https://github.com/parulkaushal06)
 
-## 📄 License
+## License
 
 The code is released under the [MIT License](LICENSE). The race data and circuit outlines keep their original terms; see [Sources and attribution](#-sources-and-attribution).
