@@ -137,6 +137,7 @@ export interface SimulateResponse {
   currentWinProbability: number;
   options: PitTimingOption[];
   bestOptionLabel: string;
+  normalizationNote?: string;
 }
 
 export type WhatIfAction = "pit" | "push" | "attack" | "drs" | "overtake";
@@ -148,15 +149,33 @@ export interface WhatIfResponse {
   simulatedWinProbability: number;        // 0-1 fraction
   changePoints: number;                   // percentage points, e.g. +7.0
   perActionNotes: Record<string, string>; // honesty labels per action
+  normalizationNote?: string;
+}
+
+export interface ExplanationResponse {
+  calibrated_win_probability: number;
+  raw_calibrated_win_probability?: number;
+  normalization_note?: string;
+  top_factors: { feature: string; actual_value: number | null; shap_impact_points: number; direction: string }[];
 }
 
 // NEW: evaluation metrics served by GET /api/model-metrics (written by train_model.py)
 export interface ModelMetrics {
   test_year: number;
   calibration_year: number;
+  calibration_years?: number[];
   splits: { train_rows: number; calib_rows: number; test_rows: number };
   test_metrics: { roc_auc: number; precision: number; recall: number; brier_score: number };
   feature_importance_top10: { feature: string; importance: number }[];
+  library_versions?: { scikit_learn: string; pandas: string };
+  race_level_evaluation?: {
+    test_year: number;
+    races: number;
+    winner_top1_accuracy: number;
+    winner_top1_accuracy_ci95: [number, number];
+    row_roc_auc_race_bootstrap_ci95: [number, number];
+    row_brier_race_bootstrap_ci95: [number, number];
+  };
   walk_forward_cv?: {
     folds: number;
     test_years: number[];
@@ -179,6 +198,7 @@ interface RawSimulateResponse {
   current_win_probability: number;
   best_option_label: string;
   options: RawPitTimingOption[];
+  normalization_note?: string;
 }
 
 interface RawWhatIfResponse {
@@ -188,6 +208,7 @@ interface RawWhatIfResponse {
   simulated_win_probability: number;
   change_points: number;
   per_action_notes?: Record<string, string>;
+  normalization_note?: string;
 }
 
 export const api = {
@@ -211,6 +232,8 @@ export const api = {
   laps: (raceId: number, driverId: number): Promise<LapBounds> => getJSON("/api/laps", { raceId, driverId }),
   strategy: (raceId: number, driverId: number, lap: number): Promise<StrategyResponse> =>
     getJSON("/api/strategy", { raceId, driverId, lap }),
+  explain: (raceId: number, driverId: number, lap: number): Promise<ExplanationResponse> =>
+    getJSON("/api/explain", { raceId, driverId, lap }),
   compare: (raceId: number, driverAId: number, driverBId: number, lap: number): Promise<CompareResponse> =>
     getJSON("/api/compare", { raceId, driverAId, driverBId, lap }),
   // NEW: evaluation metrics — fetched once by the model evaluation strip
@@ -223,6 +246,7 @@ export const api = {
     getJSON<RawSimulateResponse>("/api/simulate/pit-timings", { raceId, driverId, lap }).then((raw) => ({
       currentWinProbability: raw.current_win_probability,
       bestOptionLabel: raw.best_option_label,
+      normalizationNote: raw.normalization_note,
       options: raw.options.map((o) => ({
         label: o.label,
         lapsFromNow: o.laps_from_now,
@@ -238,5 +262,6 @@ export const api = {
       simulatedWinProbability: raw.simulated_win_probability,
       changePoints: raw.change_points,
       perActionNotes: raw.per_action_notes ?? {},
+      normalizationNote: raw.normalization_note,
     })),
 };

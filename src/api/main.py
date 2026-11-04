@@ -31,6 +31,7 @@ import os
 import sys
 import json
 import joblib
+import numpy as np
 import pandas as pd
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -39,6 +40,10 @@ from fastapi.responses import JSONResponse
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from src.strategy.recommend_action import StrategyEngine
 from src.features.explain import build_explainer, explain_prediction
+from src.features.probability import (
+    normalize_counterfactual_probability,
+    normalize_field_percentages,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -354,18 +359,67 @@ def _get_driver_lap_or_404(raceId: int, driverId: int, lap: int):
     return driver_race_df, current_row_df.iloc[0]
 
 
+def _race_lap_predictions(race_id: int, through_lap: int) -> pd.DataFrame:
+    """Predict and normalize every observed driver's score on each race lap."""
+    rows = df[(df["raceId"] == race_id) & (df["lap"] <= through_lap)].copy()
+    if rows.empty:
+        return rows
+    rows = rows.sort_values(["lap", "position", "driverId"]).reset_index(drop=True)
+    raw = model.predict_proba(rows[feature_cols].fillna(-999))[:, 1]
+    normalized_percentages = np.empty(len(rows), dtype=float)
+    for positions in rows.groupby("lap", sort=False).indices.values():
+        normalized_percentages[positions] = normalize_field_percentages(raw[positions])
+    rows["rawWinProbability"] = raw
+    rows["normalizedWinProbability"] = normalized_percentages / 100.0
+    return rows
+
+
+def _apply_normalized_strategy_probabilities(current: dict, field_rows: pd.DataFrame, driver_id: int):
+    """Put current and pit-now probabilities on the same race-field scale."""
+    driver_ids = field_rows["driverId"].to_numpy()
+    indices = (driver_ids == driver_id).nonzero()[0]
+    if not len(indices):
+        return current
+    index = int(indices[0])
+    raw_field = field_rows["rawWinProbability"].to_numpy(dtype=float)
+    current_probability = float(field_rows.iloc[index]["normalizedWinProbability"])
+    raw_pit_probability = current["simulatedPitNow"]["winProbability"] / 100.0
+    pit_probability = normalize_counterfactual_probability(raw_pit_probability, raw_field, index)
+
+    current["winProbability"] = round(current_probability * 100, 2)
+    current["simulatedPitNow"]["winProbability"] = round(pit_probability * 100, 2)
+    current["simulatedPitNow"]["probabilityChange"] = round((pit_probability - current_probability) * 100, 2)
+    current["simulatedPitNow"]["note"] += (
+        " Counterfactual rescales this driver's simulated score against the other drivers' unchanged baseline scores."
+    )
+    return current
+
+
+def _field_probability_context(field_rows: pd.DataFrame, driver_id: int):
+    """Return a field's raw model scores and the selected driver's array index."""
+    matches = (field_rows["driverId"].to_numpy() == driver_id).nonzero()[0]
+    if not len(matches):
+        raise HTTPException(404, f"driver {driver_id} has no row in this race field snapshot")
+    raw = model.predict_proba(field_rows[feature_cols].fillna(-999))[:, 1]
+    return raw, int(matches[0])
+
+
 @app.get("/api/strategy")
 def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: int = LapParam()):
     driver_race_df, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
 
     field_df = df[(df["raceId"] == raceId) & (df["lap"] == lap)]
+    race_predictions = _race_lap_predictions(raceId, lap)
+    current_field_predictions = race_predictions[race_predictions["lap"] == lap]
     current = _row_to_strategy(current_row, field_df)
+    current = _apply_normalized_strategy_probabilities(current, current_field_predictions, driverId)
 
-    # --- win probability trend up to this lap, real model.predict_proba per lap ---
-    history_df = driver_race_df[driver_race_df["lap"] <= lap].copy()
-    X_hist = history_df[feature_cols].fillna(-999)
-    history_df["winProb"] = model.predict_proba(X_hist)[:, 1] * 100
-    history = [{"lap": int(r.lap), "winProb": round(float(r.winProb), 2)} for r in history_df.itertuples()]
+    # Histories use the same per-lap field normalization as the current score.
+    history_df = race_predictions[race_predictions["driverId"] == driverId]
+    history = [
+        {"lap": int(r.lap), "winProb": round(float(r.normalizedWinProbability) * 100, 2)}
+        for r in history_df.itertuples()
+    ]
 
     # --- full field snapshot for this lap ---
     # Batched: 2 model calls total for the whole field, instead of 2 PER DRIVER
@@ -373,6 +427,7 @@ def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: 
     # for the ~5x speed impact this had on page load time).
     field_sorted = field_df.sort_values("position").reset_index(drop=True)
     batch_results = engine.recommend_batch(field_sorted, same_lap_field_df=field_df)
+    normalized_by_driver = current_field_predictions.set_index("driverId")["normalizedWinProbability"]
 
     field = []
     for row_dict, r in zip(field_sorted.to_dict("records"), batch_results):
@@ -381,7 +436,7 @@ def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: 
             "driverId": int(row_dict["driverId"]),
             "code": row_dict["code"],
             "team": row_dict["constructor_name"],
-            "winProbability": r["current_win_probability"],
+            "winProbability": round(float(normalized_by_driver.loc[row_dict["driverId"]]) * 100, 2),
             "pitRecommendation": r["pit_recommendation"].split(" (")[0],
             "drsAvailable": "AVAILABLE" in r["drs_recommendation"],
             "raceCraftRecommendation": r["race_craft_recommendation"].split(" (")[0],
@@ -424,7 +479,21 @@ def simulate_pit_timings(raceId: int = RaceIdParam(), driverId: int = DriverIdPa
     race, not as a detailed report. See StrategyEngine.compare_pit_timings().
     """
     _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
-    return engine.compare_pit_timings(current_row)
+    field_df = df[(df["raceId"] == raceId) & (df["lap"] == lap)].reset_index(drop=True)
+    raw_field, driver_index = _field_probability_context(field_df, driverId)
+    result = engine.compare_pit_timings(current_row)
+    current_field_percentages = normalize_field_percentages(raw_field)
+    current_probability = float(current_field_percentages[driver_index] / 100.0)
+    result["current_win_probability"] = round(current_probability, 4)
+    for option in result["options"]:
+        raw_simulated = option["win_probability"]
+        normalized = normalize_counterfactual_probability(raw_simulated, raw_field, driver_index)
+        option["win_probability"] = round(normalized, 4)
+        option["change_points"] = round((normalized - current_probability) * 100, 1)
+    result["normalization_note"] = (
+        "Each scenario rescales this driver's simulated score against the other drivers' unchanged baseline scores."
+    )
+    return result
 
 
 @app.get("/api/explain")
@@ -436,7 +505,15 @@ def explain(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: i
     while still reporting the CALIBRATED probability as the headline number.
     """
     _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
-    return explain_prediction(current_row, get_explainer(), model, feature_cols)
+    explanation = explain_prediction(current_row, get_explainer(), model, feature_cols)
+    field_df = df[(df["raceId"] == raceId) & (df["lap"] == lap)].reset_index(drop=True)
+    raw_field, driver_index = _field_probability_context(field_df, driverId)
+    explanation["raw_calibrated_win_probability"] = explanation["calibrated_win_probability"]
+    explanation["calibrated_win_probability"] = round(
+        float(normalize_field_percentages(raw_field)[driver_index]), 2
+    )
+    explanation["normalization_note"] = "Probability is normalized across the observed field for this race lap."
+    return explanation
 
 
 @app.get("/api/simulate/what-if")
@@ -457,7 +534,26 @@ def simulate_what_if(
     action_list = [a.strip() for a in actions.split(",") if a.strip()]
     _, current_row = _get_driver_lap_or_404(raceId, driverId, lap)
     try:
-        return engine.simulate_what_if(current_row, action_list)
+        result = engine.simulate_what_if(current_row, action_list)
+        field_df = df[(df["raceId"] == raceId) & (df["lap"] == lap)].reset_index(drop=True)
+        raw_field, driver_index = _field_probability_context(field_df, driverId)
+        current_field_percentages = normalize_field_percentages(raw_field)
+        current_probability = float(current_field_percentages[driver_index] / 100.0)
+        simulated_probability = normalize_counterfactual_probability(
+            result["simulated_win_probability"], raw_field, driver_index
+        )
+        result["current_win_probability"] = round(current_probability, 4)
+        result["simulated_win_probability"] = round(simulated_probability, 4)
+        result["change_points"] = round((simulated_probability - current_probability) * 100, 1)
+        label, _, _ = result["verdict"].partition(": ")
+        result["verdict"] = (
+            f"{label}: {current_probability * 100:.1f}% -> "
+            f"{simulated_probability * 100:.1f}% ({result['change_points']:+.1f}%)"
+        )
+        result["normalization_note"] = (
+            "The simulated score is rescaled against the other drivers' unchanged baseline scores."
+        )
+        return result
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -472,16 +568,20 @@ def compare(
     if driverAId == driverBId:
         raise HTTPException(400, "driverAId and driverBId must be different drivers")
 
+    race_predictions = _race_lap_predictions(raceId, lap)
+    current_field_predictions = race_predictions[race_predictions["lap"] == lap]
     result = {}
     for key, driver_id in (("driverA", driverAId), ("driverB", driverBId)):
         driver_race_df, current_row = _get_driver_lap_or_404(raceId, driver_id, lap)
         field_df = df[(df["raceId"] == raceId) & (df["lap"] == lap)]
         current = _row_to_strategy(current_row, field_df)
+        current = _apply_normalized_strategy_probabilities(current, current_field_predictions, driver_id)
 
-        history_df = driver_race_df[driver_race_df["lap"] <= lap].copy()
-        X_hist = history_df[feature_cols].fillna(-999)
-        history_df["winProb"] = model.predict_proba(X_hist)[:, 1] * 100
-        history = [{"lap": int(r.lap), "winProb": round(float(r.winProb), 2)} for r in history_df.itertuples()]
+        history_df = race_predictions[race_predictions["driverId"] == driver_id]
+        history = [
+            {"lap": int(r.lap), "winProb": round(float(r.normalizedWinProbability) * 100, 2)}
+            for r in history_df.itertuples()
+        ]
 
         result[key] = {
             "driverId": driver_id,

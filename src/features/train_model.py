@@ -14,8 +14,8 @@ exploration found two real issues, both accounted for below:
    used cv=5 (retraining the model 5 times internally), which caused a ~5x
    slowdown per prediction at inference time. The current approach trains
    the base model ONCE on the training years, then wraps it with
-   FrozenEstimator and calibrates ONCE more on a separate calibration year
-   -- same calibration quality, far faster at inference.
+    FrozenEstimator and calibrates once on a held-out multi-year window,
+    avoiding internal model retraining and preserving fast inference.
 2. Feature redundancy: gap_to_leader_ms and gap_to_leader_s are the same
    value in two units; gap_to_leader_ms is dropped from the feature set.
 
@@ -37,6 +37,7 @@ import sys
 import json
 import joblib
 import pandas as pd
+import sklearn
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.frozen import FrozenEstimator
@@ -53,7 +54,9 @@ IDENTIFIER_COLS = ["raceId", "driverId", "driver_number", "session_key", "meetin
 LABEL_COL = "won"
 DROPPED_DUPLICATE_FEATURE = "gap_to_leader_ms"  # duplicate of gap_to_leader_s, different units
 
-CALIBRATION_YEAR = 2023
+CALIBRATION_YEARS = (2021, 2022, 2023)
+# Keep the latest year alias for consumers that display a single calibration year.
+CALIBRATION_YEAR = CALIBRATION_YEARS[-1]
 TEST_YEAR = 2024
 
 
@@ -86,25 +89,23 @@ def select_feature_columns(df: pd.DataFrame) -> list:
 
 def three_way_split(df: pd.DataFrame, feature_cols: list):
     """
-    Train on years before CALIBRATION_YEAR, calibrate on CALIBRATION_YEAR,
-    test on TEST_YEAR. All three must actually exist in the data, or the
-    split silently produces an empty set and a confusing downstream error --
-    checked explicitly here instead.
+    Train strictly before the calibration window, calibrate on every season in
+    CALIBRATION_YEARS, and test on TEST_YEAR. Each required season must exist.
     """
     available_years = set(df["year"].unique())
-    for label, year in [("CALIBRATION_YEAR", CALIBRATION_YEAR), ("TEST_YEAR", TEST_YEAR)]:
+    for year in CALIBRATION_YEARS + (TEST_YEAR,):
         if year not in available_years:
             raise ValueError(
-                f"{label}={year} not present in the dataset (years available: "
-                f"{sorted(available_years)}). Update CALIBRATION_YEAR/TEST_YEAR "
+                f"Required year {year} is not present in the dataset (years available: "
+                f"{sorted(available_years)}). Update CALIBRATION_YEARS/TEST_YEAR "
                 f"in this script to match the data you actually have."
             )
 
     X = df[feature_cols].fillna(-999)
     y = df[LABEL_COL]
 
-    train_mask = df["year"] < CALIBRATION_YEAR
-    calib_mask = df["year"] == CALIBRATION_YEAR
+    train_mask = df["year"] < min(CALIBRATION_YEARS)
+    calib_mask = df["year"].isin(CALIBRATION_YEARS)
     test_mask = df["year"] == TEST_YEAR
 
     splits = {
@@ -139,7 +140,7 @@ def train() -> dict:
     )
     model.fit(X_train, y_train)
 
-    logger.info("Calibrating (FrozenEstimator + isotonic, fit once on the calibration year)...")
+    logger.info("Calibrating (FrozenEstimator + isotonic) on years %s...", CALIBRATION_YEARS)
     calibrated_model = CalibratedClassifierCV(FrozenEstimator(model), method="isotonic")
     calibrated_model.fit(X_calib, y_calib)
 
@@ -165,8 +166,10 @@ def train() -> dict:
                 "and feature_columns.pkl -> %s", MODELS_DIR)
         # --- Persist evaluation metrics so the API can serve them without retraining ---
     metrics_payload = {
+        "library_versions": {"scikit_learn": sklearn.__version__, "pandas": pd.__version__},
         "test_year": TEST_YEAR,
         "calibration_year": CALIBRATION_YEAR,
+        "calibration_years": list(CALIBRATION_YEARS),
         "splits": {
             "train_rows": int(len(X_train)),
             "calib_rows": int(len(X_calib)),
@@ -192,6 +195,30 @@ def train() -> dict:
                 "roc_auc_std": round(float(cv_summary.loc["std", "roc_auc"]), 4),
                 "brier_mean": round(float(cv_summary.loc["mean", "brier_score"]), 4),
             }
+            if "race_level_top1_accuracy" in cv_df.columns:
+                metrics_payload["walk_forward_cv"]["race_level_top1_accuracy_mean"] = round(
+                    float(cv_df["race_level_top1_accuracy"].mean()), 4
+                )
+            production_fold = cv_df[cv_df["test_year"] == TEST_YEAR]
+            if not production_fold.empty:
+                fold = production_fold.iloc[0]
+                metrics_payload["race_level_evaluation"] = {
+                    "test_year": TEST_YEAR,
+                    "races": int(fold["race_count"]),
+                    "winner_top1_accuracy": round(float(fold["race_level_top1_accuracy"]), 4),
+                    "winner_top1_accuracy_ci95": [
+                        round(float(fold["race_level_top1_ci_low"]), 4),
+                        round(float(fold["race_level_top1_ci_high"]), 4),
+                    ],
+                    "row_roc_auc_race_bootstrap_ci95": [
+                        round(float(fold["race_cluster_roc_auc_ci_low"]), 4),
+                        round(float(fold["race_cluster_roc_auc_ci_high"]), 4),
+                    ],
+                    "row_brier_race_bootstrap_ci95": [
+                        round(float(fold["race_cluster_brier_ci_low"]), 4),
+                        round(float(fold["race_cluster_brier_ci_high"]), 4),
+                    ],
+                }
         except Exception as exc:
             logger.warning("Could not include CV results in metrics payload: %s", exc)
 

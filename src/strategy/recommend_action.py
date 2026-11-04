@@ -72,13 +72,31 @@ import os
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "win_probability_model_calibrated.pkl")
 FEATURES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "feature_columns.pkl")
 
-# Empirically derived from real pit-stop timing in cleaned_dataset.csv:
-# tire_age_ratio at the lap BEFORE a real pit stop has median 0.257, with the
-# middle 80% falling between the 10th and 90th percentiles below. Used as the
-# default "typical pit window" instead of a fixed lap count.
-PIT_WINDOW_RATIO_LOW = 0.12
-PIT_WINDOW_RATIO_HIGH = 0.45
-PIT_WINDOW_RATIO_CRITICAL = 0.55  # beyond this, tires are well past typical stop timing
+# Derived from pre-pit tire_age_ratio rows through 2020 only (q10/q90/q95),
+# then evaluated out of sample on 2021-2024 in tools/evaluate_pit_oos.py.
+# These form the typical pit window instead of a fixed lap count.
+PIT_WINDOW_RATIO_LOW = 0.076923  # pre-pit q10 through 2020; OOS evaluated on 2021-2024
+PIT_WINDOW_RATIO_HIGH = 0.433333  # pre-pit q90 through 2020
+PIT_WINDOW_RATIO_CRITICAL = 0.492958  # pre-pit q95 through 2020
+
+
+def calculate_pit_urgency_score(row, tire_age_ratio, low, high, critical):
+    """Pure pit-urgency heuristic shared by production and OOS evaluation."""
+    if tire_age_ratio <= low:
+        tire_component = 70 * (tire_age_ratio / low) * 0.3
+    elif tire_age_ratio <= high:
+        tire_component = 21 + 49 * (tire_age_ratio - low) / (high - low)
+    elif tire_age_ratio <= critical:
+        tire_component = 70 + 20 * (tire_age_ratio - high) / (critical - high)
+    else:
+        tire_component = 90 + min(10, (tire_age_ratio - critical) * 20)
+    tire_component = max(0, min(100, tire_component))
+
+    pace_delta = row.get("pace_delta_to_fastest_ms", 0) or 0
+    pace_component = max(0, min(20, (pace_delta / 1500.0) * 20))
+    position_change = row.get("position_change", 0) or 0
+    trend_component = 10 if position_change < 0 else 0
+    return round(float(min(100, tire_component * 0.7 + pace_component + trend_component)), 1)
 
 
 class StrategyEngine:
@@ -378,32 +396,13 @@ class StrategyEngine:
         Each component is weighted; weights are simple and documented, not fit --
         this is a transparent heuristic, not a second ML model.
         """
-        # --- Tire age component (0-70 points) ---
-        low, high, crit = self.pit_window_ratio_low, self.pit_window_ratio_high, self.pit_window_ratio_critical
-        if tire_age_ratio <= low:
-            tire_component = 70 * (tire_age_ratio / low) * 0.3  # still fresh, low urgency
-        elif tire_age_ratio <= high:
-            # ramps from 21 to 70 across the main window
-            tire_component = 21 + 49 * (tire_age_ratio - low) / (high - low)
-        elif tire_age_ratio <= crit:
-            tire_component = 70 + 20 * (tire_age_ratio - high) / (crit - high)
-        else:
-            tire_component = 90 + min(10, (tire_age_ratio - crit) * 20)
-        tire_component = max(0, min(100, tire_component))
-
-        # --- Pace degradation component (0-20 points) ---
-        pace_delta = row.get("pace_delta_to_fastest_ms", 0) or 0
-        # 0ms delta -> 0 points; >= 1500ms behind fastest -> full 20 points
-        pace_component = max(0, min(20, (pace_delta / 1500.0) * 20))
-
-        # --- Position trend component (0-10 points) ---
-        position_change = row.get("position_change", 0) or 0
-        # losing places recently (position_change < 0 means position number went up)
-        trend_component = 10 if position_change < 0 else 0
-
-        # Weighted combination (tire age dominates, capped at 100):
-        score = min(100, tire_component * 0.7 + pace_component + trend_component)
-        return round(float(score), 1)
+        return calculate_pit_urgency_score(
+            row,
+            tire_age_ratio,
+            self.pit_window_ratio_low,
+            self.pit_window_ratio_high,
+            self.pit_window_ratio_critical,
+        )
 
     def _build_recommendation(self, row, current_win_prob, sim_win_prob):
         """

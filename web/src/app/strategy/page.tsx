@@ -8,7 +8,7 @@ import ApiWakeBanner from "@/components/ApiWakeBanner";
 import CircuitTrack from "@/components/CircuitTrack";
 import { getCircuitData } from "@/data/circuitRegistry";
 // EVAL: ModelMetrics type added
-import { api, type RaceSummary, type DriverSummary, type StrategyResponse, type WhatIfAction, type WhatIfResponse, type ModelMetrics } from "@/lib/api";
+import { api, type RaceSummary, type DriverSummary, type StrategyResponse, type WhatIfAction, type WhatIfResponse, type ModelMetrics, type ExplanationResponse } from "@/lib/api";
 
 const TEAM_COLORS: Record<string, string> = {
   "Red Bull": "#2246A8",
@@ -57,6 +57,9 @@ function StrategyDashboardInner() {
   const [whatIfResult, setWhatIfResult] = useState<WhatIfResponse | null>(null);
   const [whatIfLoading, setWhatIfLoading] = useState(false);
   const [whatIfError, setWhatIfError] = useState<string | null>(null);
+  const [explanation, setExplanation] = useState<{ key: string; value: ExplanationResponse } | null>(null);
+  const [explanationLoading, setExplanationLoading] = useState(false);
+  const [explanationError, setExplanationError] = useState<string | null>(null);
   // REPLAY: playback state. replaySpeed 1x = one lap every 3 seconds.
   const [replaying, setReplaying] = useState(false);
   const [replaySpeed, setReplaySpeed] = useState(1);
@@ -176,6 +179,16 @@ function StrategyDashboardInner() {
   }, [raceId, driverId, lap, effectiveWhatIfActions, replaying]);
 
   const driver = useMemo(() => drivers.find((d) => d.driverId === driverId), [drivers, driverId]);
+  const explanationKey = `${raceId}:${driverId}:${lap}`;
+  const explainCurrentLap = () => {
+    if (raceId == null || driverId == null) return;
+    setExplanationLoading(true);
+    setExplanationError(null);
+    api.explain(raceId, driverId, lap)
+      .then((value) => setExplanation({ key: explanationKey, value }))
+      .catch((e) => setExplanationError(String(e.message ?? e)))
+      .finally(() => setExplanationLoading(false));
+  };
   const circuit = useMemo(() => (data ? getCircuitData(data.meta.circuitName) : null), [data]);
 
   const sparkline = useMemo(() => {
@@ -420,6 +433,35 @@ function StrategyDashboardInner() {
       </section>
 
       <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
+        <div className="card p-5">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div>
+              <div className="eyebrow mb-1">PREDICTION EXPLANATION · LAP {lap}</div>
+              <p className="text-[12px] text-[color:var(--ink-secondary)]">See which model features contributed most to this driver&apos;s prediction.</p>
+            </div>
+            <button type="button" className="btn !py-2" onClick={explainCurrentLap} disabled={explanationLoading || raceId == null || driverId == null}>
+              {explanationLoading ? "Explaining…" : "Explain this prediction"}
+            </button>
+          </div>
+          {explanationError && <p className="mt-3 text-[12px]" style={{ color: "var(--accent)" }}>{explanationError}</p>}
+          {explanation?.key === explanationKey && (
+            <div className="mt-4">
+              <div className="mono mb-3">Field-normalized win probability: {explanation.value.calibrated_win_probability.toFixed(2)}%</div>
+              <div className="grid sm:grid-cols-2 gap-2">
+                {explanation.value.top_factors.map((factor) => (
+                  <div key={factor.feature} className="flex justify-between gap-3 text-[12px] border-t border-[color:var(--hairline)] pt-2">
+                    <span>{factor.feature} <span className="text-[color:var(--ink-muted)]">({factor.direction}, value {factor.actual_value ?? "missing"})</span></span>
+                    <span className="mono shrink-0">{factor.shap_impact_points > 0 ? "+" : ""}{factor.shap_impact_points.toFixed(2)} pts</span>
+                  </div>
+                ))}
+              </div>
+              <p className="mt-3 text-[11px] text-[color:var(--ink-muted)]">SHAP impacts describe raw Random Forest contributions; calibration and field normalization mean they do not decompose the displayed probability exactly. {explanation.value.normalization_note ?? ""}</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="max-w-[1280px] mx-auto px-6 md:px-10 pb-6">
         <div className="card p-6">
           <div className="flex items-baseline justify-between mb-4 flex-wrap gap-2">
             <div className="eyebrow">WHAT IF SIMULATOR — TEST YOUR OWN CALL</div>
@@ -504,6 +546,11 @@ function StrategyDashboardInner() {
 
               {/* Honesty footnotes */}
               <div className="hairline-top mt-5 pt-3 flex flex-col gap-1">
+                {whatIfResult.normalizationNote && (
+                  <div className="text-[11px] text-[color:var(--ink-muted)]">
+                    {whatIfResult.normalizationNote}
+                  </div>
+                )}
                 {Object.entries(whatIfResult.perActionNotes).map(([action, note]) => (
                   <div key={action} className="text-[11px] text-[color:var(--ink-muted)]">
                     {action.toUpperCase()} — {note}
@@ -606,7 +653,7 @@ function StrategyDashboardInner() {
                 </div>
               )}
               <div className="mt-3 text-[11px] text-[color:var(--ink-muted)]">
-                Trained on years &lt; {metrics.calibration_year}, calibrated on {metrics.calibration_year}, evaluated on {metrics.test_year} ({metrics.splits.test_rows.toLocaleString()} laps). Plain accuracy is not shown — only 5.4% of laps end in a win, so precision/recall and AUC are the honest measures. Full write-up: docs/09_model_results.md
+                Trained on years &lt; {metrics.calibration_years?.[0] ?? metrics.calibration_year}, calibrated on {metrics.calibration_years?.join(", ") ?? metrics.calibration_year}, evaluated on {metrics.test_year} ({metrics.splits.test_rows.toLocaleString()} laps). Plain accuracy is not shown — only 5.4% of laps end in a win, so precision/recall and AUC are the honest measures. Full write-up: docs/09_model_results.md
               </div>
             </>
           ) : (

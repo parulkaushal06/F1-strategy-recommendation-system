@@ -1,57 +1,66 @@
 {
+  "library_versions": {
+    "scikit_learn": "1.9.0",
+    "pandas": "2.3.3"
+  },
   "test_year": 2024,
   "calibration_year": 2023,
+  "calibration_years": [
+    2021,
+    2022,
+    2023
+  ],
   "splits": {
-    "train_rows": 269314,
-    "calib_rows": 24386,
+    "train_rows": 222097,
+    "calib_rows": 71603,
     "test_rows": 26574
   },
   "test_metrics": {
-    "roc_auc": 0.9746,
-    "precision": 0.764,
-    "recall": 0.6884,
-    "brier_score": 0.0237
+    "roc_auc": 0.9754,
+    "precision": 0.7636,
+    "recall": 0.6891,
+    "brier_score": 0.0222
   },
   "feature_importance_top10": [
     {
       "feature": "position",
-      "importance": 0.2212
+      "importance": 0.2241
     },
     {
       "feature": "gap_to_leader_s",
-      "importance": 0.2066
-    },
-    {
-      "feature": "gap_per_lap_covered_s",
-      "importance": 0.1546
+      "importance": 0.1772
     },
     {
       "feature": "grid",
-      "importance": 0.1482
+      "importance": 0.1612
+    },
+    {
+      "feature": "gap_per_lap_covered_s",
+      "importance": 0.1463
     },
     {
       "feature": "gap_to_ahead_ms",
-      "importance": 0.1115
+      "importance": 0.1252
     },
     {
       "feature": "pace_delta_to_fastest_ms",
-      "importance": 0.0508
+      "importance": 0.0512
     },
     {
       "feature": "position_vs_grid",
-      "importance": 0.019
+      "importance": 0.0199
     },
     {
       "feature": "cum_time_ms",
-      "importance": 0.0088
-    },
-    {
-      "feature": "race_progress",
-      "importance": 0.0083
+      "importance": 0.0104
     },
     {
       "feature": "rolling_lap_time_ms",
-      "importance": 0.0082
+      "importance": 0.0091
+    },
+    {
+      "feature": "milliseconds",
+      "importance": 0.0088
     }
   ],
   "walk_forward_cv": {
@@ -65,8 +74,26 @@
       2023,
       2024
     ],
-    "roc_auc_mean": 0.9708,
-    "roc_auc_std": 0.0113,
-    "brier_mean": 0.0257
+    "roc_auc_mean": 0.973,
+    "roc_auc_std": 0.0082,
+    "brier_mean": 0.025,
+    "race_level_top1_accuracy_mean": 0.9872
+  },
+  "race_level_evaluation": {
+    "test_year": 2024,
+    "races": 24,
+    "winner_top1_accuracy": 0.9583,
+    "winner_top1_accuracy_ci95": [
+      0.8333,
+      1.0
+    ],
+    "row_roc_auc_race_bootstrap_ci95": [
+      0.9537,
+      0.9924
+    ],
+    "row_brier_race_bootstrap_ci95": [
+      0.0141,
+      0.0317
+    ]
   }
 }

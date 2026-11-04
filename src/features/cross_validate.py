@@ -17,9 +17,9 @@ available while predicting a 2020 race). Walk-forward validation respects
 time order: each fold only ever trains on years strictly before the test
 year, matching how the model would actually be used.
 
-Each fold replicates the exact 3-way split used in train_model.py (train /
-calibration year / test year) rather than a simpler train/test split, so
-these numbers are directly comparable to the production training procedure.
+Each fold replicates the production temporal split with a three-season
+calibration window: train before the window, calibrate on the prior three
+seasons, and test on the next season.
 
 Run from project root, after clean_data.py:
     python src/features/cross_validate.py
@@ -29,6 +29,7 @@ import logging
 import os
 import sys
 
+import numpy as np
 import pandas as pd
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
@@ -43,16 +44,66 @@ logger = logging.getLogger(__name__)
 
 MIN_TRAIN_ROWS = 500  # skip a fold if there isn't enough training data to be meaningful
 RESULTS_PATH = "reports/cross_validation_results.csv"
+BOOTSTRAP_REPLICATES = 500
+
+
+def race_level_bootstrap_metrics(test_df: pd.DataFrame, probabilities, seed: int = 42) -> dict:
+    """Race-cluster confidence intervals plus final-lap winner top-1 accuracy."""
+    frame = test_df[["raceId", "lap", "won"]].reset_index(drop=True).copy()
+    frame["probability"] = np.asarray(probabilities, dtype=float)
+    race_groups = frame.groupby("raceId", sort=False).indices
+    race_ids = np.asarray(list(race_groups))
+    y = frame["won"].to_numpy(dtype=int)
+    p = frame["probability"].to_numpy(dtype=float)
+
+    # Score the predicted winner at each race's final observed lap.
+    race_top1 = []
+    for race_id in race_ids:
+        positions = race_groups[race_id]
+        race_rows = frame.iloc[positions]
+        final_lap = race_rows["lap"].max()
+        final_positions = positions[race_rows["lap"].to_numpy() == final_lap]
+        predicted_winner = final_positions[int(np.argmax(p[final_positions]))]
+        race_top1.append(int(y[predicted_winner] == 1))
+    race_top1 = np.asarray(race_top1, dtype=float)
+
+    rng = np.random.default_rng(seed)
+    auc_samples = np.empty(BOOTSTRAP_REPLICATES, dtype=float)
+    brier_samples = np.empty(BOOTSTRAP_REPLICATES, dtype=float)
+    top1_samples = np.empty(BOOTSTRAP_REPLICATES, dtype=float)
+    top1_by_race = dict(zip(race_ids.tolist(), race_top1.tolist()))
+    for i in range(BOOTSTRAP_REPLICATES):
+        sampled_races = rng.choice(race_ids, size=len(race_ids), replace=True)
+        sampled_positions = np.concatenate([race_groups[race_id] for race_id in sampled_races])
+        auc_samples[i] = roc_auc_score(y[sampled_positions], p[sampled_positions])
+        brier_samples[i] = brier_score_loss(y[sampled_positions], p[sampled_positions])
+        top1_samples[i] = np.mean([top1_by_race[race_id] for race_id in sampled_races])
+
+    auc_low, auc_high = np.percentile(auc_samples, [2.5, 97.5])
+    brier_low, brier_high = np.percentile(brier_samples, [2.5, 97.5])
+    top1_low, top1_high = np.percentile(top1_samples, [2.5, 97.5])
+    return {
+        "race_count": int(len(race_ids)),
+        "race_level_top1_accuracy": float(race_top1.mean()),
+        "race_level_top1_ci_low": float(top1_low),
+        "race_level_top1_ci_high": float(top1_high),
+        "race_cluster_roc_auc_ci_low": float(auc_low),
+        "race_cluster_roc_auc_ci_high": float(auc_high),
+        "race_cluster_brier_ci_low": float(brier_low),
+        "race_cluster_brier_ci_high": float(brier_high),
+    }
 
 
 def run_one_fold(df: pd.DataFrame, feature_cols: list, test_year: int) -> dict:
-    calib_year = test_year - 1
+    calib_start_year = test_year - 3
+    calib_end_year = test_year - 1
+    calibration_years = tuple(range(calib_start_year, calib_end_year + 1))
 
     X = df[feature_cols].fillna(-999)
     y = df["won"]
 
-    train_mask = df["year"] < calib_year
-    calib_mask = df["year"] == calib_year
+    train_mask = df["year"] < calib_start_year
+    calib_mask = df["year"].isin(calibration_years)
     test_mask = df["year"] == test_year
 
     X_train, y_train = X[train_mask], y[train_mask]
@@ -75,21 +126,29 @@ def run_one_fold(df: pd.DataFrame, feature_cols: list, test_year: int) -> dict:
 
     y_pred = calibrated_model.predict(X_test)
     y_pred_proba = calibrated_model.predict_proba(X_test)[:, 1]
+    test_frame = df.loc[test_mask, ["raceId", "lap", "won"]]
+    clustered_metrics = race_level_bootstrap_metrics(
+        test_frame, y_pred_proba, seed=42 + int(test_year)
+    )
 
     result = {
         "test_year": test_year,
-        "calib_year": calib_year,
+        "calib_start_year": calib_start_year,
+        "calib_end_year": calib_end_year,
         "train_rows": len(X_train),
+        "calib_rows": len(X_calib),
         "test_rows": len(X_test),
         "roc_auc": roc_auc_score(y_test, y_pred_proba),
         "precision": precision_score(y_test, y_pred),
         "recall": recall_score(y_test, y_pred),
         "brier_score": brier_score_loss(y_test, y_pred_proba),
+        **clustered_metrics,
     }
     logger.info(
-        "test_year=%d: ROC-AUC=%.4f precision=%.3f recall=%.3f brier=%.4f (train=%d, test=%d rows)",
+        "test_year=%d: ROC-AUC=%.4f precision=%.3f recall=%.3f brier=%.4f (train=%d, calib=%d, test=%d rows; calibration=%d-%d)",
         test_year, result["roc_auc"], result["precision"], result["recall"],
-        result["brier_score"], len(X_train), len(X_test),
+        result["brier_score"], len(X_train), len(X_calib), len(X_test),
+        calib_start_year, calib_end_year,
     )
     return result
 
