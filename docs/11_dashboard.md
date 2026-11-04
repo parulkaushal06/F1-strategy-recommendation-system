@@ -13,11 +13,11 @@ The API loads the cleaned dataset, feature list, and calibrated model at startup
 
 - **Home** (`web/src/app/page.tsx`): static 2023 calendar/standings data, with API lookup for race details.
 - **Race Hub** (`web/src/app/race-hub/page.tsx`): race selection and circuit/session information; uses the API and local circuit data.
-- **Strategy** (`web/src/app/strategy/page.tsx`): season/race/driver/lap selection, probability history, replay, recommendation cards, field table, what-if controls, feature importance, and optional model metrics.
+- **Strategy** (`web/src/app/strategy/page.tsx`): season/race/driver/lap selection, field-normalized probability history, replay, recommendation cards, on-demand SHAP explanation, field table, what-if controls, feature importance, and optional model metrics.
 - **Compare** (`web/src/app/compare/page.tsx`): two drivers' current state and probability histories for a selected race.
 - **Results** (`web/src/app/results/page.tsx`): static 2023 Belgian GP results JSON.
 
-The dashboard is a historical replay, not a live timing client. SHAP is available at the API endpoint but is not currently shown in the frontend.
+The dashboard is a historical replay, not a live timing client. The Strategy page requests SHAP explanations on demand for the selected driver and lap. These describe raw Random Forest contributions; calibration and field normalization mean they do not exactly decompose the displayed probability.
 
 ## API routes
 

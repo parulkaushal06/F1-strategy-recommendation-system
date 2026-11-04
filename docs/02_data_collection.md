@@ -28,12 +28,14 @@ python src/data/consolidate_openf1.py
 python src/data/final_merge.py
 python src/data/clean_data.py
 python src/features/cross_validate.py   # optional; writes reports/cross_validation_results.csv
-python src/features/train_model.py      # current split requires 2023 and 2024
+python src/features/train_model.py      # current split requires 2021-2024 seasons
 ```
 
 `consolidate_openf1.py` expects OpenF1 files and the driver mapping. `final_merge.py` expects the consolidated OpenF1 table, Ergast tables, and feature table. OpenF1 enrichment can be omitted for an intentionally Ergast-only workflow, but the documented merge sequence assumes those files exist.
 
 Training writes raw and calibrated model pickle files, the feature list, and `models/model_metrics.json`. The API also requires `data/processed/cleaned_dataset.csv`, `data/raw/ergast/races.csv`, and `data/raw/ergast/drivers.csv`.
+
+The current production split trains on seasons before 2021, calibrates on 2021–2023, and tests on 2024. Walk-forward evaluation uses the previous three available seasons for calibration and writes race-cluster bootstrap intervals to `reports/cross_validation_results.csv`.
 
 ## Deployment bundle
 

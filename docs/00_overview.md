@@ -28,14 +28,14 @@ The data pipeline is implemented in `src/data/` and `src/features/`. `src/strate
 | `notebooks/` | Data cleaning, EDA and modeling explorations |
 | `data/` | Local raw/interim/processed data; ignored by Git |
 | `models/` | Trained pickle artifacts (ignored) and tracked model metrics JSON |
-| `reports/` | Saved baseline and cross-validation results |
+| `reports/` | Saved baseline, cross-validation, pit OOS, and feature-ablation results |
 | `docs/` | Project documentation |
 | `assets/circuits-svg/` | Attributed circuit outline assets |
 | `.github/workflows/` | CI checks and manually triggered deployment workflow |
 
 ## Current data and model snapshot
 
-The checked-in model metrics report a 2024 held-out test year, calibrated on 2023 and trained on earlier seasons: ROC-AUC 0.9746, Brier score 0.0237, precision 0.7640, and recall 0.6884. The metrics JSON records 269,314 training rows, 24,386 calibration rows, and 26,574 test rows. These describe the saved model evaluation, not current-season race results. Local `data/processed/cleaned_dataset.csv` currently has 320,274 rows and 66 columns; `data/` and model pickle files are not tracked.
+The checked-in model metrics report a 2024 held-out test year, calibrated on 2021–2023 and trained on earlier seasons: ROC-AUC 0.9754, Brier score 0.0222, precision 0.7636, and recall 0.6891. The metrics JSON records 222,097 training rows, 71,603 calibration rows, and 26,574 test rows. On the 24 test races, final-lap winner top-1 accuracy is 95.8% (race-bootstrap 95% CI 83.3–100%). These describe the saved model evaluation, not current-season race results. Local `data/processed/cleaned_dataset.csv` currently has 320,274 rows and 66 columns; `data/` and model pickle files are not tracked.
 
 ## Documentation index
 

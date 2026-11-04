@@ -39,10 +39,10 @@ RACECRAFT analyzes historical Formula 1 races lap by lap. A calibrated Random Fo
 
 Given the state of a race (lap, position, gaps, tire age, pit history), the project produces:
 
-- **Win probability:** the chance a driver wins the race, re-estimated every lap by a calibrated Random Forest.
+- **Win probability:** the chance a driver wins the race, estimated every lap by a calibrated Random Forest and normalized across the observed field in API responses.
 - **Recommendations:** pit urgency, DRS availability (proxy), ERS (proxy) and attack / defend / manage-pace calls.
 - **What-if simulation:** how the win probability moves if the driver pits now or later, pushes, attacks, gets DRS or completes an overtake.
-- **Explanations:** which factors pushed a prediction up or down (SHAP, available through the API but not yet shown in the dashboard).
+- **Explanations:** on-demand SHAP factors for the selected driver and lap, shown in the Strategy dashboard.
 - **Dashboard:** lap-by-lap history and field context, driver comparison, race lookup, real circuit maps and historical results.
 
 ```
@@ -83,28 +83,28 @@ web/ (Next.js) ← HTTP/JSON → src/api/ (FastAPI) → StrategyEngine
 
 ## Results
 
-**Data:** 320,274 lap rows (2011–2024), 42 features. Time-based split with no future leakage: train on years before 2023, calibrate on 2023, test on 2024 (26,574 rows, 5.4% winners). The saved evaluation is in `models/model_metrics.json`.
+**Data:** 320,274 lap rows (2011–2024), 42 features. Time-based split with no future leakage: train on years before 2021, calibrate on 2021–2023, test on 2024 (26,574 rows, 5.4% winners). The saved evaluation is in `models/model_metrics.json`.
 
 | Metric (2024 test year) | Value |
 |---|---|
-| ROC-AUC | **0.9746** |
-| Brier score | **0.0237** |
-| Precision / Recall @ 0.5 | 0.764 / 0.688 |
+| ROC-AUC | **0.9754** |
+| Brier score | **0.0222** |
+| Precision / Recall @ 0.5 | 0.764 / 0.689 |
 
 These are historical evaluation metrics, not a guarantee of future performance.
 
-**Walk-forward cross-validation** (each fold trains on earlier years only and calibrates on the year before the test year):
+**Walk-forward cross-validation** (each fold trains on earlier years only and calibrates on the previous three seasons):
 
 | Test year | ROC-AUC | Brier |
 |---|---|---|
-| 2018 | 0.9636 | 0.0279 |
-| 2019 | 0.9728 | 0.0289 |
-| 2020 | 0.9550 | 0.0240 |
-| 2021 | 0.9629 | 0.0335 |
-| 2022 | 0.9777 | 0.0244 |
-| 2023 | 0.9891 | 0.0170 |
-| 2024 | 0.9743 | 0.0238 |
-| **Mean ± std** | **0.9708 ± 0.0113** | **0.0257** |
+| 2018 | 0.9659 | 0.0267 |
+| 2019 | 0.9727 | 0.0299 |
+| 2020 | 0.9608 | 0.0249 |
+| 2021 | 0.9725 | 0.0298 |
+| 2022 | 0.9772 | 0.0231 |
+| 2023 | 0.9863 | 0.0185 |
+| 2024 | 0.9754 | 0.0222 |
+| **Mean ± std** | **0.9730 ± 0.0082** | **0.0250** |
 
 2023 is the easiest year: Red Bull won 95% of winning rows that season, so grid and gap are cleaner signals ([`docs/09_model_results.md`](docs/09_model_results.md)).
 
@@ -119,9 +119,9 @@ A high AUC means little on its own: late in a race the leader usually wins anywa
 | Current position only | 0.9696 | 0.0253 | 0.742 | 0.742 |
 | Position + race progress (logistic) | 0.9747 | 0.0237 | 0.773 | 0.636 |
 | "Current leader wins" rule | 0.9696 | n/a | 0.742 | 0.742 |
-| **Random Forest (calibrated)** | **0.9746** | **0.0237** | 0.763 | 0.692 |
+| **Random Forest (calibrated)** | **0.9754** | **0.0222** | 0.764 | 0.689 |
 
-The Brier score is **54% better than a constant predictor** (0.0237 vs 0.0514). But an honest reading is that **position is most of the signal**: a 3-feature logistic regression (position, race progress and their interaction) matches the Random Forest's overall AUC and Brier. The Random Forest's edge shows up in specific places:
+The Brier score is **57% better than a constant predictor** (0.0222 vs 0.0514). But an honest reading is that **position is most of the signal**: a 3-feature logistic regression (position, race progress and their interaction) matches the Random Forest's overall AUC and Brier. The Random Forest's edge shows up in specific places:
 
 | Race progress | Rows | Position only | Position + progress | Random Forest |
 |---|---|---|---|---|
@@ -134,35 +134,36 @@ The Brier score is **54% better than a constant predictor** (0.0237 vs 0.0514). 
 
 ### Calibration
 
-The raw Random Forest was overconfident (about 82% predicted in its top bucket versus about 47% observed). Isotonic calibration cut the Brier score from 0.0424 to 0.0227 on the earlier validation split. Using a frozen base model plus one calibration year, instead of 5-fold calibration, made inference about 5.5x faster.
+The raw Random Forest was overconfident (about 82% predicted in its top bucket versus about 47% observed in an earlier validation). Isotonic calibration is now fit on a held-out three-season window using a frozen base model, avoiding internal model retraining during calibration.
 
 On the 2024 test year the calibration is **good but not perfect**:
 
 | Predicted bucket | Rows | Mean predicted | Observed win rate |
 |---|---|---|---|
-| 0–1% | 21,795 | 0.000 | 0.003 |
-| 1–5% | 2,038 | 0.027 | 0.066 |
-| 5–10% | 508 | 0.063 | 0.081 |
-| 10–25% | 827 | 0.122 | 0.195 |
-| 25–50% | 97 | 0.361 | 0.536 |
-| 50–75% | 178 | 0.701 | 0.775 |
-| 75–90% | 537 | 0.823 | 0.631 |
-| 90–100% | 594 | 0.982 | 0.879 |
+| 0–1% | 20,495 | 0.001 | 0.002 |
+| 1–5% | 2,309 | 0.031 | 0.027 |
+| 5–10% | 957 | 0.076 | 0.069 |
+| 10–25% | 1,246 | 0.153 | 0.157 |
+| 25–50% | 264 | 0.396 | 0.318 |
+| 50–75% | 800 | 0.679 | 0.667 |
+| 75–90% | 212 | 0.861 | 0.920 |
+| 90–100% | 291 | 0.916 | 0.914 |
 
-The middle buckets are slightly underconfident and the top two are overconfident. A likely cause is that calibration is fit on a single year (2023, an unusually Red Bull-dominated season). Calibrating on several years is listed under future work.
+Calibration is fit on 2021–2023. The 2024 buckets are closer overall, though the small 25–50% and 75–90% groups still show mismatch; calibration quality can vary by season.
 
 **Model comparison** (all calibrated the same way, using the earlier 5-fold setup, so numbers differ slightly from the production split above; see `docs/09`): Random Forest AUC 0.977 / Brier 0.023, Logistic Regression 0.966 / 0.026, XGBoost 0.963 / 0.024.
 
 ### Strategy checks
 
-- **Pit recommendation:** flags 73% of laps right before a real pit stop (300 samples). The window thresholds come from the same dataset, so treat this as a sanity check rather than an out-of-sample result.
+- **Pit recommendation:** evaluated out of sample on 2021–2024 after fitting tire-window thresholds on data through 2020. At the `PIT NOW` threshold, combined precision is 5.4% and false-positive rate is 8.7%; see `reports/pit_oos_evaluation.csv`.
 - **DRS proxy vs real telemetry** (2 races, 2,161 rows): 78.1% agreement, 62.0% recall, 16.3% false positives at the tuned 1250 ms threshold.
 - **Cross-source validation:** 98.9–100% agreement between Ergast and OpenF1 on pit stops and driver codes.
 
 ## Engineering highlights
 
-- **Leakage-safe evaluation:** time-based train / calibrate / test split plus walk-forward CV across 7 seasons, instead of a random split.
-- **Calibration, diagnosed and fixed:** found the raw model overconfident, fixed it with isotonic calibration (Brier 0.0424 → 0.0227), then replaced 5-fold calibration with a frozen model plus one calibration year, cutting prediction time from about 291 ms to 53 ms.
+- **Leakage-safe evaluation:** time-based train / multi-year calibrate / test split plus walk-forward CV across 7 seasons, with race-cluster bootstrap confidence intervals and race-level winner top-1 accuracy.
+- **Calibration, diagnosed and improved:** found the raw model overconfident, applied isotonic calibration and expanded the calibration window to 2021–2023. The frozen base model avoids internal model retraining at inference.
+- **Missing-feature ablation:** compared `-999` sentinels, dropping train-missing columns, and train-median imputation with missing indicators; results are in `reports/feature_ablation.csv`.
 - **Batched inference:** the field table uses 2 model calls per lap instead of 2 per driver (about 36–40), removing a multi-second page load.
 - **Two real pipeline bugs found and fixed:** a `session_key` merge bug that silently dropped weather and driver names, and a tire-age feature that was zeroed on 100% of the 11,371 real pit-stop rows. The second is covered by a regression test.
 - **Proxies validated, not assumed:** the DRS proxy was checked against real telemetry and its threshold tuned from 1000 ms to 1250 ms (recall 54.1% → 62.0%).
@@ -172,7 +173,7 @@ The middle buckets are slightly underconfident and the top two are overconfident
 
 ## RACECRAFT dashboard
 
-Next.js + Tailwind app (`web/`) with five pages: **Home**, **Race Hub**, **Strategy** (win-probability trend, recommendations, field context, what-if tool, feature importance, model metrics), **Compare** (two drivers side by side) and **Results**.
+Next.js + Tailwind app (`web/`) with five pages: **Home**, **Race Hub**, **Strategy** (win-probability trend, recommendations, field context, what-if tool, on-demand SHAP explanations, feature importance, model metrics), **Compare** (two drivers side by side) and **Results**.
 
 Circuit maps are real: 31 of the 35 circuits use outlines from [julesr0y/f1-circuits-svg](https://github.com/julesr0y/f1-circuits-svg) (CC BY 4.0), with corners and sectors aligned from FastF1 telemetry (`tools/circuit-alignment/`). Valencia, Korea, India and Malaysia have no map because FastF1 doesn't reliably expose pre-2018 sessions.
 
@@ -215,10 +216,10 @@ FastAPI service (`src/api/main.py`). Interactive docs are at `/docs` (locally `h
 │   └── api/             # FastAPI app
 ├── web/                 # Next.js 16 / React 19 dashboard
 ├── tests/               # pytest suite (synthetic data, no real dataset needed)
-├── tools/               # baseline comparison, DRS validation/tuning, pit backtest, circuit alignment, data bundle
+├── tools/               # baselines, DRS checks, pit OOS evaluation, feature ablation, circuit alignment, data bundle
 ├── notebooks/           # cleaning, EDA, modeling
 ├── models/              # model_metrics.json (model .pkl files are not committed)
-├── reports/             # cross-validation and baseline-comparison results
+├── reports/             # CV, baseline, pit OOS, feature-ablation and probability-experiment results
 ├── docs/                # full documentation (index below)
 ├── assets/circuits-svg/ # circuit outlines (CC BY 4.0)
 ├── .github/workflows/   # CI (tests, lint, types, build) and manual CD
@@ -259,7 +260,7 @@ python src/features/cross_validate.py   # optional: walk-forward CV
 python src/features/train_model.py      # train, calibrate, save model + metrics
 ```
 
-OpenF1 collection can be skipped if you already have compatible OpenF1 files and only need the Ergast-derived dataset, but it is required to reproduce the telemetry enrichment and DRS validation. The production split is fixed to calibration year 2023 and test year 2024, so the dataset must contain both years. See also [`docs/03_data_merging.md`](docs/03_data_merging.md). To skip the pipeline on a server, `tools/make_data_bundle.py` creates an archive of the required files (see Deployment).
+OpenF1 collection can be skipped if you already have compatible OpenF1 files and only need the Ergast-derived dataset, but it is required to reproduce the telemetry enrichment and DRS validation. The production split uses 2021–2023 for calibration and 2024 for testing; the dataset must contain those seasons and at least one earlier training season. See also [`docs/03_data_merging.md`](docs/03_data_merging.md). To skip the pipeline on a server, `tools/make_data_bundle.py` creates an archive of the required files (see Deployment).
 
 ### 2. Start the API and the dashboard
 
@@ -315,9 +316,9 @@ The suite builds a small synthetic dataset and model, so it runs without the pro
 - **No public ERS data.** ERS advice is a proxy, labelled as such. DRS is a proxy validated on only 2 races.
 - OpenF1 enrichment (compound, weather, speed traps) is sparse: about 7% of rows, 2023 only.
 - Most of the win-probability signal comes from current position and gaps; the model's measurable edge over a simple position-based logistic regression is concentrated in the first half of a race (see the baseline tables).
-- Calibration is fit on a single year (2023), so top-probability buckets are somewhat overconfident on 2024.
-- Driver probabilities are predicted independently, so they do not sum to 100% on a lap.
-- SHAP explains the raw model's feature contributions, while the headline probability comes from the calibrated model.
+- Calibration is fit on 2021–2023; some 2024 probability buckets still have limited-sample calibration error.
+- The underlying model scores drivers independently; API probabilities are normalized across the observed field for each race lap. This is a relative field share, not a separately calibrated joint probability model.
+- SHAP explains the raw model's feature contributions, while the headline probability is calibrated and field-normalized.
 - Push and attack what-ifs use assumed magnitudes.
 - Circuit maps are missing for four circuits.
 
@@ -325,10 +326,7 @@ Full list: [`docs/06_known_limitations.md`](docs/06_known_limitations.md).
 
 ## Future work
 
-- Calibrate on several seasons instead of one
 - Driver / constructor form and qualifying features, to add signal beyond position and gaps
-- Normalise win probabilities across the field
-- Surface SHAP explanations in the dashboard
 - Live (non-static) Home and Results pages
 - Real maps for the remaining 4 circuits
 

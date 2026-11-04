@@ -4,11 +4,11 @@
 
 ## Win probability
 
-The calibrated classifier estimates the probability for one driver/lap feature row. The API uses the model for current probabilities and lap histories. The probability is not normalized against the rest of the field.
+The calibrated classifier estimates a probability for one driver/lap feature row. The API normalizes the field's raw calibrated scores to sum to 100% for current probabilities and lap histories. This produces relative field shares; the independent row model is not jointly trained across the field.
 
 ## Pit recommendation
 
-Pit urgency uses `tire_age_ratio`, pace delta, and position trend. Default ratio thresholds are 0.12, 0.45, and 0.55. Tire-age contributes up to a weighted 70 points, pace degradation up to 20, and a losing position trend 10. Scores >=70 return `PIT NOW`; scores >=40 return `CONSIDER PIT`; lower scores return `STAY OUT`. A row already marked `pit_stop_this_lap == 1` returns N/A.
+Pit urgency uses `tire_age_ratio`, pace delta, and position trend. Default ratio thresholds are 0.076923, 0.433333, and 0.492958, derived from pre-pit q10/q90/q95 through 2020. Tire-age contributes up to a weighted 70 points, pace degradation up to 20, and a losing position trend 10. Scores >=70 return `PIT NOW`; scores >=40 return `CONSIDER PIT`; lower scores return `STAY OUT`. A row already marked `pit_stop_this_lap == 1` returns N/A. `tools/evaluate_pit_oos.py` evaluates next-lap pit alerts on 2021–2024; combined `PIT NOW` precision is 5.4% with an 8.7% false-positive rate, so this remains a weak heuristic.
 
 The model's simulated pit-now probability is returned as context, not used as the sole pit decision rule. The pit simulation applies the median observed pit duration where available (fallback 22 seconds), updates simplified tire/pace/gap features, and reruns the model. This is a row perturbation, not a full race simulation.
 
