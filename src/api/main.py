@@ -233,9 +233,13 @@ def LapParam():
     return Query(..., ge=1, description="Lap number, 1-indexed")
 
 
-@app.get("/health")
+@app.api_route("/health", methods=["GET", "HEAD"])
 def health():
-    """Basic liveness/readiness check for deployment platforms (Render, Railway, etc.)."""
+    """Basic liveness/readiness check for deployment platforms (Render, Railway, etc.).
+
+    HEAD is allowed too: uptime monitors (e.g. UptimeRobot's free plan) probe with
+    HEAD requests, which would otherwise get a 405 and be reported as "down".
+    """
     return {"status": "ok", "rows_loaded": len(df), "races": len(RACE_NAMES)}
 
 

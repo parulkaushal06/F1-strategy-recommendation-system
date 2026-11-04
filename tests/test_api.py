@@ -16,6 +16,12 @@ def test_health_check(api_client):
     assert res.json()["status"] == "ok"
 
 
+def test_health_check_allows_head_requests(api_client):
+    """Uptime monitors probe with HEAD; a 405 here shows up as a false 'down'."""
+    res = api_client.head("/health")
+    assert res.status_code == 200
+
+
 def test_seasons_returns_synthetic_year(api_client):
     res = api_client.get("/api/seasons")
     assert res.status_code == 200
