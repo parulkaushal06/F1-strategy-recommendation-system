@@ -1,92 +1,76 @@
-# Data Dictionary
+# Cleaned dataset dictionary
 
-Every column in `data/processed/final_merged_dataset.csv` (post-cleaning, 64 columns),
-grouped by category. "Source" indicates where the raw value came from; "Derived" means
-it was calculated during the pipeline.
+The schema below is the 66-column header in the current local `data/processed/cleaned_dataset.csv`. Source snapshots can change; inspect the CSV header and `src/data/clean_data.py` after rebuilding. `models/feature_columns.pkl` is the authoritative ordered model input list.
 
-## Identifiers
+## Identity and race context
 
-| Column | Type | Meaning | Source |
-|---|---|---|---|
-| `raceId` | int | Unique race ID | Ergast |
-| `driverId` | int | Unique driver ID | Ergast |
-| `driverRef` | text | Driver reference name (e.g. "vettel") | Ergast |
-| `code` | text | 3-letter driver code (e.g. "VET") | Ergast |
-| `lap` | int | Lap number within the race | Ergast |
-| `driver_number` | float | OpenF1's driver number (2023 rows only) | OpenF1 |
-| `session_key` | float | OpenF1 session ID (2023 rows only) | OpenF1 |
-| `meeting_key` | float | OpenF1 race weekend ID (2023 rows only) | OpenF1 |
-
-## Race context
-
-| Column | Type | Meaning | Source |
-|---|---|---|---|
-| `year`, `round` | int | Season year, round number | Ergast |
-| `circuit_name`, `location`, `country` | text | Race location details | Ergast |
-| `date` | text | Race date | Ergast |
-| `constructor_name` | text | Team name | Ergast |
-| `total_laps` | int | Total laps in this race | Derived |
-
-## Position & timing
-
-| Column | Type | Meaning | Source |
-|---|---|---|---|
-| `position` | int | Running position at this lap | Ergast |
-| `grid` | int | Starting grid position (0 = pit lane start) | Ergast |
-| `milliseconds` | int | This lap's time, in ms | Ergast |
-| `cum_time_ms` | int | Cumulative race time up to this lap | Derived |
-| `gap_to_leader_ms` / `gap_to_leader_s` | int/float | Gap to race leader | Derived |
-| `gap_to_ahead_ms` | float | Gap to the car directly ahead | Derived |
-| `gap_per_lap_covered_s` | float | Gap normalized by laps completed | Derived |
-| `race_progress` | float | `lap / total_laps`, range 0–1 | Derived |
-| `position_vs_grid` | int | Places gained (+) or lost (-) vs. start | Derived |
-| `position_change` | int | Position change vs. previous lap | Derived |
-| `rolling_lap_time_ms` | float | 3-lap rolling average pace | Derived |
-| `pace_delta_to_fastest_ms` | float | Gap to the fastest lap set that round | Derived |
-
-## Pit stops & tires
-
-| Column | Type | Meaning | Source |
-|---|---|---|---|
-| `pit_stop_this_lap` | int (0/1) | Pit stop happened this lap | Ergast (validated 100% against OpenF1 — see `04_data_cleaning.md`) |
-| `cumulative_pit_stops` | int | Running pit-stop count | Derived |
-| `laps_since_last_pit` | int | Tire-age proxy | Derived |
-| `pit_duration_ms` | float | Pit stop duration (Ergast) | Ergast |
-| `pit_stop_duration_s` | float | Pit stop duration (OpenF1, 2023 only) | OpenF1 |
-| `tire_age_ratio` | float | `laps_since_last_pit / total_laps` | Derived |
-| `compound` | text | **Real** tire compound — SOFT/MEDIUM/HARD (2023 only) | OpenF1 |
-| `stint_number` | float | Which tire stint this lap belongs to (2023 only) | OpenF1 |
-| `tyre_age_at_stint_start` | float | Tire age when this stint began (2023 only) | OpenF1 |
-| `drs_zone_proxy` | int (0/1) | **Rule-based estimate**: within 1s of car ahead | Derived (proxy — see `06_known_limitations.md`) |
-| `pit_window_proxy` | int (0/1) | **Rule-based estimate**: tire age 15–30 laps | Derived (proxy) |
-
-## OpenF1 telemetry (2023 only)
-
-| Column | Meaning |
+| Columns | Meaning |
 |---|---|
-| `duration_sector_1/2/3` | Real sector times |
-| `i1_speed`, `i2_speed`, `st_speed` | Speed trap readings (intermediate 1/2, start-finish) |
-| `is_pit_out_lap` | 1 if this lap is the out-lap right after a pit stop |
-| `lap_duration` | OpenF1's own lap time (redundant with `milliseconds`, kept for cross-checking) |
-| `segments_sector_1/2/3` | Mini-sector performance flags |
-| `date_start`, `date_openf1` | Timestamps for this lap / weather reading |
+| `raceId`, `driverId` | Ergast race and driver identifiers |
+| `driverRef`, `code` | Ergast driver reference and 3-letter code |
+| `year`, `round`, `date` | Season, championship round, and race date |
+| `circuit_name`, `location`, `country` | Circuit and event location labels |
+| `constructor_name` | Ergast constructor/team label |
+| `lap`, `total_laps` | Current lap and race distance |
+| `driver_number`, `session_key`, `meeting_key` | OpenF1 identity values; nullable outside matched enrichment |
 
-## Weather (2023 only)
+## Position, timing, and derived race state
 
-| Column | Meaning |
+| Columns | Meaning |
 |---|---|
-| `air_temperature`, `track_temperature` | °C |
-| `rainfall` | Rainfall indicator |
-| `humidity` | % |
-| `pressure` | Air pressure |
-| `wind_speed`, `wind_direction` | Wind conditions |
+| `position`, `grid` | Running position and starting grid position |
+| `milliseconds` | Lap time in milliseconds from the historical timing table |
+| `cum_time_ms` | Cumulative lap time used to derive race gaps |
+| `gap_to_leader_ms`, `gap_to_leader_s` | Gap to leader in milliseconds and seconds (duplicate units) |
+| `gap_to_ahead_ms` | Gap from the immediately preceding position in the lap order; leader value is an artifact, not a real gap |
+| `gap_per_lap_covered_s` | Gap to leader normalized by laps completed |
+| `race_progress` | `lap / total_laps` |
+| `position_vs_grid` | Places gained relative to grid; positive means gained |
+| `position_change` | Difference in position number from previous lap; positive means position number increased |
+| `rolling_lap_time_ms` | Rolling mean lap time over up to the previous three rows |
+| `pace_delta_to_fastest_ms` | Lap time minus fastest lap time on that race lap |
 
-## Outcome / label
+## Pit, tire, and strategy proxies
 
-| Column | Type | Meaning | Source |
-|---|---|---|---|
-| `statusId` | int | Finish status code (1 = Finished, others = DNF reasons) | Ergast |
-| `points` | float | Championship points earned | Ergast |
-| `positionOrder` | int | Official final classification | Ergast |
-| `won` | int (0/1) | **Model target label** — 1 if this driver won the race | Derived |
-| `has_openf1_telemetry` | int (0/1) | 1 if this row has real OpenF1 data attached | Derived (added during cleaning) |
+| Columns | Meaning |
+|---|---|
+| `pit_stop_this_lap` | Ergast-derived binary pit-stop indicator |
+| `cumulative_pit_stops` | Cumulative pit-stop count |
+| `laps_since_last_pit` | Tire-age proxy; pit lap carries pre-reset age, counter resets for next lap |
+| `pit_duration_ms` | Ergast pit duration in milliseconds |
+| `pit_stop_duration_s` | OpenF1 pit duration in seconds where available |
+| `tire_age_ratio` | `laps_since_last_pit / total_laps` |
+| `drs_zone_proxy` | Rule-based DRS proximity flag (gap threshold 1,250 ms; not activation ground truth) |
+| `pit_window_proxy` | Basic 15–30 lap heuristic feature; distinct from the engine's ratio-based urgency rule |
+| `compound` | OpenF1 tire compound where available |
+| `stint_number` | OpenF1 stint index where available |
+| `tyre_age_at_stint_start` | OpenF1 tire age at stint start where available |
+
+## OpenF1 lap and weather enrichment
+
+| Columns | Meaning |
+|---|---|
+| `date_start`, `date_openf1` | OpenF1 lap/weather timestamps |
+| `duration_sector_1`, `duration_sector_2`, `duration_sector_3` | Sector durations |
+| `i1_speed`, `i2_speed`, `st_speed` | Intermediate and start/finish speed trap values |
+| `is_pit_out_lap` | OpenF1 indicator that lap follows a pit stop |
+| `lap_duration` | OpenF1 lap duration |
+| `segments_sector_1`, `segments_sector_2`, `segments_sector_3` | OpenF1 mini-sector segment data |
+| `air_temperature`, `track_temperature` | Air and track temperature |
+| `rainfall` | OpenF1 rainfall indicator |
+| `humidity` | Relative humidity |
+| `pressure` | Atmospheric pressure |
+| `wind_speed`, `wind_direction` | Wind readings |
+| `has_openf1_telemetry` | Indicator that OpenF1 enrichment is present on the row |
+
+## Outcome and quality flag
+
+| Columns | Meaning |
+|---|---|
+| `statusId` | Ergast finishing status identifier |
+| `points` | Championship points awarded |
+| `positionOrder` | Official final classification order |
+| `won` | Binary target: driver won the race |
+| `anomalous_lap_time` | Flag for anomalously long lap-time rows; not a race-outcome label |
+
+The model excludes identifiers, text fields, the target, and outcome/leakage fields. See `src/features/train_model.py` for the current exclusion logic.

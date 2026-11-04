@@ -1,80 +1,58 @@
-# F1 Strategy & Win Probability Predictor — Project Documentation
+# RACECRAFT project overview
 
-## What this project does
+RACECRAFT is a historical Formula 1 race-state analysis project. It estimates a driver's probability of winning from lap-level race features and presents rule-based strategy guidance alongside the estimate. It is a replay and analysis dashboard, not a live timing or pit-wall system.
 
-Given the current state of an F1 race (lap number, position, gap to leader, tire age,
-pit history), this project predicts:
+## Current architecture
 
-1. **Win probability** — the likelihood a given driver wins the race, updated lap by lap
-2. **Strategic recommendation** — what action improves that probability (pit now, expect
-   a DRS opportunity, etc.)
-3. **Feature importance** — which factors actually drive winning, learned from historical data
-
-This goes beyond a static "predict the race winner before lights out" model — the goal is
-a model that re-evaluates win probability *as the race unfolds*, similar to what broadcast
-graphics show live during a Grand Prix.
-
-## Architecture
-
-```
-Historical F1 Data (Ergast/Kaggle + OpenF1 API)
-        ↓
-Data Cleaning
-        ↓
-Feature Engineering
-        ↓
-ML Model
-        ↓
-Feature Importance Analysis
-        ↓
-Strategy Recommendation Engine
-        ↓
-Winning Probability Prediction
-        ↓
-Dashboard
+```text
+Ergast/Kaggle CSVs ─┐
+                    ├─ data preparation ─ feature engineering ─ trained model
+OpenF1 race data ───┘                                      │
+                                                          ▼
+Browser: Next.js/React/TypeScript ── HTTP/JSON ── FastAPI + StrategyEngine
 ```
 
-## Objectives
+The data pipeline is implemented in `src/data/` and `src/features/`. `src/strategy/recommend_action.py` applies pit, DRS/ERS proxy, race-craft and what-if logic. `src/api/main.py` loads the cleaned dataset and model artifacts at process startup, then exposes read-only GET endpoints. The frontend under `web/src/app/` calls those endpoints through `web/src/lib/api.ts`.
 
-1. Find which factors contribute most to victory (feature importance)
-2. Predict winning probability at any point in a race
-3. Recommend which car setting or strategic action should be taken
-4. Present all of this in a live-updating dashboard
+## Repository map
+
+| Path | Contents |
+|---|---|
+| `src/data/` | Ergast and OpenF1 collection, merging, cleaning, and web-data export scripts |
+| `src/features/` | Race-state features, training, walk-forward evaluation, and SHAP explanations |
+| `src/strategy/` | `StrategyEngine` recommendations and simulations |
+| `src/api/` | FastAPI app, data/model loading, and HTTP endpoints |
+| `web/` | Next.js 16, React 19, TypeScript and Tailwind dashboard |
+| `tests/` | Synthetic API and strategy-engine tests; no production data required |
+| `tools/` | Backtests, baselines, DRS validation/tuning, circuit alignment, data bundling |
+| `notebooks/` | Data cleaning, EDA and modeling explorations |
+| `data/` | Local raw/interim/processed data; ignored by Git |
+| `models/` | Trained pickle artifacts (ignored) and tracked model metrics JSON |
+| `reports/` | Saved baseline and cross-validation results |
+| `docs/` | Project documentation |
+| `assets/circuits-svg/` | Attributed circuit outline assets |
+| `.github/workflows/` | CI checks and manually triggered deployment workflow |
+
+## Current data and model snapshot
+
+The checked-in model metrics report a 2024 held-out test year, calibrated on 2023 and trained on earlier seasons: ROC-AUC 0.9746, Brier score 0.0237, precision 0.7640, and recall 0.6884. The metrics JSON records 269,314 training rows, 24,386 calibration rows, and 26,574 test rows. These describe the saved model evaluation, not current-season race results. Local `data/processed/cleaned_dataset.csv` currently has 320,274 rows and 66 columns; `data/` and model pickle files are not tracked.
 
 ## Documentation index
 
-| File | Contents |
+| Document | Covers |
 |---|---|
-| [`01_data_sources.md`](01_data_sources.md) | Where every dataset came from, why two sources were used, and their coverage limits |
-| [`02_data_collection.md`](02_data_collection.md) | Exact scripts run, in order, to download raw data |
-| [`03_data_merging.md`](03_data_merging.md) | How separate raw tables became one unified dataset, and the ID-bridging logic used |
-| [`04_data_cleaning.md`](04_data_cleaning.md) | Cleaning steps applied, and the validation checks run before each fix |
-| [`05_data_dictionary.md`](05_data_dictionary.md) | Every column in the final dataset — meaning, source, type |
-| [`06_known_limitations.md`](06_known_limitations.md) | Honest gaps in the data (e.g. no real ERS data exists publicly anywhere) |
-| [`07_project_status.md`](07_project_status.md) | What's done, what's next |
-| [`08_eda_findings.md`](08_eda_findings.md) | Correlation analysis, data leakage catch, and feature engineering investigations |
-| [`09_model_results.md`](09_model_results.md) | Model training, calibration, comparison, validation, SHAP, and performance fixes |
-| [`10_strategy_engine.md`](10_strategy_engine.md) | Pit/DRS/ERS/race-craft recommendation logic and its design history |
-| [`11_dashboard.md`](11_dashboard.md) | Dashboard implementation (Streamlit + the full-stack Next.js/FastAPI app) |
-| [`12_industrial_roadmap.md`](12_industrial_roadmap.md) | Prioritized next steps for taking this from a working project to a deployable, production-grade one |
+| [01 Data sources](01_data_sources.md) | Source tables, temporal coverage, and data caveats |
+| [02 Data collection](02_data_collection.md) | Collection scripts and pipeline prerequisites |
+| [03 Data merging](03_data_merging.md) | Dataset transformation order and join keys |
+| [04 Data cleaning](04_data_cleaning.md) | Cleaning, validation, and known quality checks |
+| [05 Data dictionary](05_data_dictionary.md) | Columns in the current cleaned dataset |
+| [06 Known limitations](06_known_limitations.md) | Model, data, recommendation, and deployment constraints |
+| [07 Project status](07_project_status.md) | Implemented features and remaining work |
+| [08 EDA findings](08_eda_findings.md) | Exploratory conclusions and feature selection context |
+| [09 Model results](09_model_results.md) | Saved evaluation, baselines, calibration, and CV |
+| [10 Strategy engine](10_strategy_engine.md) | Implemented rules and simulation assumptions |
+| [11 Dashboard](11_dashboard.md) | Pages, API integration, local run, and deployment |
 
-## Project folder structure
+## Local run
 
-```
-F1 Sport/
-├── data/
-│   ├── raw/            # untouched downloaded data (Ergast CSVs, OpenF1 API responses)
-│   ├── interim/         # partially merged/cleaned data
-│   └── processed/       # final model-ready datasets
-├── notebooks/            # step-by-step analysis (data cleaning, EDA, modeling)
-├── src/
-│   ├── data/             # scripts to fetch and merge raw data
-│   ├── features/         # feature engineering scripts
-│   ├── strategy/          # strategy recommendation engine (pit/DRS/ERS/race-craft)
-│   └── api/                # FastAPI backend serving the web frontend
-├── web/                    # Next.js + TypeScript frontend
-├── dashboard/               # Streamlit dashboard (alternative to web/)
-├── models/                   # saved trained model files (calibrated + raw + feature list)
-├── docs/                      # this documentation
-└── reports/                    # figures and write-ups
-```
+See the root [README](../README.md) for setup and pipeline commands. A fresh clone needs the ignored data and model artifacts before the API can start; either recreate them with the documented pipeline or supply the deployment data bundle.

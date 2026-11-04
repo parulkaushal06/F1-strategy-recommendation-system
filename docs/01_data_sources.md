@@ -1,74 +1,27 @@
-# Data Sources
+# Data sources and coverage
 
-This project combines **two independent data sources** because no single public source
-covers both (a) full historical race results and (b) detailed car telemetry.
+The project combines historical race tables with a limited telemetry enrichment. Source datasets are local artifacts under ignored `data/`; they are not committed with the code.
 
-## Source 1: Ergast / Kaggle — "Formula 1 World Championship (1950–2024)"
+## Ergast/Kaggle tables
 
-- **What it is**: A relational dataset of official F1 results — the "results ledger."
-  Originally served by the Ergast API (now deprecated), mirrored and kept updated on
-  Kaggle by user Vopani (Rohan Rao).
-- **Coverage**: 1950–2024, all seasons, all races.
-- **Granularity caveat**: lap-by-lap timing data (`lap_times.csv`) is only reliable from
-  **2011 onward** — earlier seasons weren't timed at that resolution. This project filters
-  to `year >= 2011` during feature engineering for this reason.
-- **Files used**: `races.csv`, `results.csv`, `drivers.csv`, `constructors.csv`,
-  `circuits.csv`, `lap_times.csv`, `pit_stops.csv`, `qualifying.csv`, `status.csv`.
-- **What it provides**: final race results, finishing position, points, pit stop counts,
-  lap times, qualifying grid position, driver/constructor/circuit metadata.
-- **What it does NOT provide**: tire compound, DRS status, weather, speed telemetry.
+The Kaggle mirror supplies CSVs under `data/raw/ergast/`, including races, results, drivers, constructors, circuits, lap times, pit stops, qualifying, and status. The current modeling table is filtered to seasons from 2011 because earlier lap timing is sparse or inconsistent. Ergast provides the base lap-by-lap position and timing history, outcome labels, and identity metadata.
 
-## Source 2: OpenF1 API
+## OpenF1
 
-- **What it is**: A free, public REST API providing real F1 telemetry — no API key
-  required. (`https://openf1.org`)
-- **Coverage**: **2023 onward only.** This is a hard limit of the source itself — OpenF1
-  does not have historical data before 2023.
-- **Endpoints used**:
-  - `/sessions` — race session metadata (session_key, circuit, date)
-  - `/laps` — lap times, sector times, speed trap readings
-  - `/pit` — real pit stop events and durations
-  - `/stints` — tire compound and stint length per driver
-  - `/weather` — track/air temperature, rainfall, wind, humidity
-  - `/drivers` — driver_number to name/team mapping
-  - `/car_data` — high-frequency (~3.7Hz) telemetry including **real DRS status**,
-    fetched only for 2 selected races (see below) due to its size
-- **What it provides that Ergast can't**: real tire compound, real DRS activation
-  status, weather, granular speed telemetry.
+The scripts in `src/data/fetch_openf1*.py` target the 2023 race season. They collect session metadata, driver mappings, laps, pit stops, stints, weather, and selected high-frequency car telemetry for DRS validation. Data is joined where race, driver, and lap identities can be matched. Enrichment is concentrated in 2023 and does not cover every row or telemetry field.
 
-## Why not FastF1 (the Python library)?
+OpenF1 driver identity is bridged using the three-letter driver code. Race identity uses circuit-name normalization and explicit overrides in `src/data/final_merge.py`. Revalidate these joins when source files or seasons change.
 
-FastF1 was the original plan for telemetry, since it wraps the same underlying F1 timing
-data. In practice, it repeatedly failed in this project's environment with
-`SessionNotAvailableError`-style errors that couldn't be reliably resolved (network/
-environment issue, not a data problem). OpenF1 was used instead as a more reliable,
-lightweight REST alternative — this is a legitimate engineering substitution, documented
-here rather than hidden.
+## FastF1 and circuit visuals
 
-## Why DRS validation only covers 2 races, not the full season
+FastF1 is used by circuit-alignment tooling to align corner and sector information. Circuit outline SVGs come from the attributed `assets/circuits-svg/` collection. Attribution and license details are in that directory's `ATTRIBUTION.md` and `LICENSE`.
 
-OpenF1's `car_data` endpoint is per-car, high-frequency telemetry — a full season would be
-tens of millions of rows. Instead, `car_data` was fetched for **2 high-overtaking races**
-(Bahrain, Brazil/Interlagos) specifically to validate the project's rule-based DRS proxy
-(`gap_to_ahead_ms <= 1000`, i.e. within 1 second of the car ahead) against real DRS
-activation data, rather than to power the main model. The measured result — 78% overall
-agreement, 54-55% recall, 13.5% false positive rate — is reported in full in
-`06_known_limitations.md` section 2.
+## Scope and caveats
 
-## Summary table
+- The saved cleaned dataset contains 320,274 lap-level rows covering 2011–2024; the saved model evaluation tests on 2024.
+- OpenF1 telemetry is enrichment, not a complete replacement for the historical base table. Missing values are expected for most rows.
+- DRS telemetry was collected for a small validation sample, not a season-wide inference feed.
+- No public ground-truth ERS deployment data is included.
+- The dashboard replays historical races and does not consume a live timing feed.
 
-| | Ergast/Kaggle | OpenF1 |
-|---|---|---|
-| Years covered | 1950–2024 (lap data reliable from 2011) | 2023 only |
-| Race results | ✅ | — |
-| Pit stops | ✅ | ✅ (validated against Ergast, 100% agreement — see `04_data_cleaning.md`) |
-| Tire compound | ❌ (proxy only) | ✅ real |
-| DRS status | ❌ (proxy only) | ✅ real (2 races only, via `car_data` — validated, see `06_known_limitations.md`) |
-| Weather | ❌ | ✅ |
-| Real ERS deployment mode | ❌ — not public anywhere | ❌ — not public anywhere |
-
-**Note on ERS**: no public data source, including OpenF1, exposes real ERS (Energy
-Recovery System) deployment mode — this is proprietary team telemetry that F1 teams do
-not release. Any "ERS Overtake Mode" recommendation this project produces is a proxy
-inferred from throttle/speed patterns, not ground-truth team data. This is stated clearly
-here and in the dashboard output.
+See [collection](02_data_collection.md), [merging](03_data_merging.md), and [limitations](06_known_limitations.md).

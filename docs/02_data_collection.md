@@ -1,61 +1,40 @@
-# Data Collection
+# Data collection and rebuild guide
 
-This document lists the exact scripts run, in order, to collect all raw data.
-All scripts live in `src/data/` and are run from the project root.
+Run scripts from the repository root. Ergast/Kaggle CSVs are downloaded separately and placed in `data/raw/ergast/`; generated datasets are excluded from Git.
 
-## Step 1 — Download Ergast/Kaggle base dataset
+## Required Ergast inputs
 
-Downloaded manually from Kaggle: "Formula 1 World Championship (1950–2024)" by Vopani.
-14 CSV files placed in `data/raw/ergast/`:
-`circuits.csv`, `constructor_results.csv`, `constructor_standings.csv`,
-`constructors.csv`, `driver_standings.csv`, `drivers.csv`, `lap_times.csv`,
-`pit_stops.csv`, `qualifying.csv`, `races.csv`, `results.csv`, `seasons.csv`,
-`sprint_results.csv`, `status.csv`.
+`merge_datasets.py` requires `races.csv`, `results.csv`, `drivers.csv`, `constructors.csv`, `qualifying.csv`, `pit_stops.csv`, `lap_times.csv`, `status.csv`, and `circuits.csv`. The source mirror may contain additional tables that the current script does not require.
 
-## Step 2 — Fetch OpenF1 session-level data (2023 season)
+## Optional OpenF1 collection
+
+The collection scripts target 2023 race sessions and write per-session CSVs under `data/raw/openf1/`:
 
 ```bash
 python src/data/fetch_openf1.py
-```
-
-Fetches `laps`, `pit`, `stints`, and `weather` for every 2023 Race session.
-Output: `data/raw/openf1/{year}_{country}_{circuit}_{laps|pits|stints|weather}.csv`
-(one set of 4 files per race, ~22 races).
-
-## Step 3 — Fetch OpenF1 driver mapping
-
-```bash
 python src/data/fetch_openf1_drivers.py
-```
-
-Fetches `driver_number -> full_name, name_acronym, team_name` for every 2023 session.
-Needed because OpenF1 identifies drivers by `driver_number`, while Ergast uses
-`driverId`/`code`. Output: `data/raw/openf1/2023_drivers_mapping.csv`.
-
-## Step 4 — Fetch OpenF1 session metadata
-
-```bash
 python src/data/fetch_openf1_sessions.py
 ```
 
-Fetches `session_key -> circuit_short_name, country_name` for every 2023 Race session.
-Needed to bridge OpenF1's `session_key` to Ergast's `raceId` via circuit name matching.
-Output: `data/raw/openf1/2023_sessions.csv`.
+`fetch_car_data.py` downloads selected high-frequency telemetry for DRS validation. It is not required to train the base model. Collection requires network access and may be affected by upstream API availability.
 
-## Step 5 — Fetch real DRS telemetry for validation (3 races only)
+## Processing and training order
 
 ```bash
-python src/data/fetch_car_data.py
+python src/data/merge_datasets.py
+python src/features/build_features.py
+# OpenF1 enrichment (requires the downloaded OpenF1 files)
+python src/data/consolidate_openf1.py
+python src/data/final_merge.py
+python src/data/clean_data.py
+python src/features/cross_validate.py   # optional; writes reports/cross_validation_results.csv
+python src/features/train_model.py      # current split requires 2023 and 2024
 ```
 
-Fetches high-frequency `car_data` (including real DRS status) for Bahrain, Italy (Monza),
-and Brazil (Interlagos) — see `01_data_sources.md` for why only 3 races. Output:
-`data/raw/openf1_car_data/{race}_car_data.csv`.
+`consolidate_openf1.py` expects OpenF1 files and the driver mapping. `final_merge.py` expects the consolidated OpenF1 table, Ergast tables, and feature table. OpenF1 enrichment can be omitted for an intentionally Ergast-only workflow, but the documented merge sequence assumes those files exist.
 
-## Known collection issues and how they were resolved
+Training writes raw and calibrated model pickle files, the feature list, and `models/model_metrics.json`. The API also requires `data/processed/cleaned_dataset.csv`, `data/raw/ergast/races.csv`, and `data/raw/ergast/drivers.csv`.
 
-| Issue | Cause | Resolution |
-|---|---|---|
-| FastF1 repeatedly failed with load errors | Environment/network instability with FastF1's timing data source | Switched to OpenF1 REST API instead |
-| `KeyError: 'meeting_name'` on first OpenF1 attempt | Assumed field name that doesn't exist in the `/sessions` response | Rebuilt race label from `country_name` + `circuit_short_name` instead |
-| Some `/pit` requests failed after retries for isolated sessions | Transient OpenF1 API issue | Script continues past individual failures; missing pit data for a handful of laps is acceptable at this scale |
+## Deployment bundle
+
+Run `python tools/make_data_bundle.py` on a machine containing all API-required files. It creates `racecraft-data.tar.gz` with paths expected by `start.sh`. Upload the archive somewhere accessible to the Render service and set `DATA_URL`; the archive is not tracked in Git.

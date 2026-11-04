@@ -1,108 +1,38 @@
-# Known Limitations
+# Known limitations
 
-Being explicit about these strengthens the project rather than weakening it — it shows
-the difference between what's measured and what's inferred was understood deliberately,
-not overlooked.
+These constraints describe the current data and implementation, not necessarily permanent properties of future versions.
 
-## 1. No real ERS (Energy Recovery System) data exists publicly
+## Data and coverage
 
-F1 teams do not release ERS deployment mode data — this is proprietary strategy
-information. **No public data source, including OpenF1, has this.** Any "Use ERS
-Overtake Mode" recommendation this project produces is inferred from proxy signals
-(e.g., throttle/speed patterns on straights), not ground-truth team telemetry. This is
-stated clearly in both the dashboard output and this documentation.
+- The local cleaned snapshot and saved evaluation cover through 2024. OpenF1 collection scripts target 2023; telemetry enrichment is sparse (about 7% of cleaned rows) and some requests/joins may be missing.
+- Lap-level modeling filters to 2011 onward because earlier lap timing is less complete.
+- Cross-source joins depend on driver codes and circuit-name overrides. New source seasons require checking those mappings and duplicate keys.
+- DRS ground truth was fetched for a small two-race sample, so validation results may not generalize to all circuits or years.
+- Circuit traces are available only for circuits represented in the frontend registry; other tracks show a fallback.
 
-## 2. DRS status is a rule-based proxy, now validated against real telemetry
+## Model
 
-Real DRS activation data exists in OpenF1's `car_data` endpoint, but was only fetched
-for **2 races** (Bahrain, Brazil/Interlagos — an earlier version of this document said
-3 races including Monza; only 2 `car_data` files actually exist in `data/raw/openf1_car_data/`,
-this has been corrected). For the remaining ~99.3% of the dataset, `drs_zone_proxy` is a
-rule-based estimate (`gap_to_ahead_ms <= 1250`, empirically tuned — see below — from an
-original 1000ms guess) — an approximation of DRS *eligibility*, not confirmed activation.
+- Production training currently uses data before 2023 for training, 2023 for isotonic calibration, and 2024 as the held-out test year. It cannot train from a dataset missing either fixed year without updating `src/features/train_model.py`.
+- Calibration on one season does not guarantee calibration in another. Saved 2024 bucket analysis shows some upper probability ranges are overconfident.
+- Each driver's probability is predicted independently. Probabilities across the field are not normalized to sum to 100%.
+- Position, grid, and gaps account for much of the predictive signal. The model is not evidence that telemetry features or the strategy rules independently improve decisions.
+- SHAP contributions explain the raw tree model; the headline score is from the separately calibrated model, so contributions do not add up to the calibrated probability.
 
-**Validation results** (see `validate_drs_proxy.py`): real DRS telemetry (sampled at
-~3.7 Hz) was bucketed into laps using each lap's start timestamp, then compared against
-`drs_zone_proxy` for the same (raceId, driverId, lap) across 2,161 matched rows from the
-2 validated races. Real DRS codes follow OpenF1's documented mapping: 0/1 = off, 8 =
-detected/eligible (in a DRS zone, gap < 1s, not yet activated), 10/12/14 = actually on.
+## Recommendations and simulations
 
-| Comparison | Agreement | Recall | False positive rate |
-|---|---|---|---|
-| Proxy vs. real "eligible or on" (code 8/10/12/14) | 78.1% | 54.1% | 13.5% |
-| Proxy vs. real "actually on" (code 10/12/14) | 78.6% | 55.2% | 13.5% |
+- There is no public ERS deployment ground truth; ERS advice is a proxy.
+- DRS eligibility is approximated from per-lap gap, not the exact official detection point or confirmed activation.
+- Pit urgency and race-craft calls use transparent heuristics. They are not trained policies or counterfactual race simulations.
+- A pit what-if applies median pit-loss data plus simplified pace/tire feature changes. Pit timing scenarios do not simulate the full race or traffic evolution.
+- Push assumes a 150 ms/lap pace gain; attack assumes 800 ms gap closure. These are illustrative assumptions, clearly labeled in responses.
+- DRS flips the trained proxy flag; overtake assumes a pass completes and modifies the row's position/gaps. These are model input perturbations, not physical race simulations.
 
-**Honest read of this result**: the proxy is not overconfident (a 13.5% false positive
-rate is fairly low — when it says "no DRS," it's usually right), but it misses close to
-half of real DRS activations (54-55% recall). The most likely cause: real DRS eligibility
-is decided by the gap at a **fixed detection point** on track (just before the DRS zone),
-checked once per lap at that exact location, whereas `drs_zone_proxy` uses whatever
-`gap_to_ahead_ms` value is stored for that lap in the per-lap dataset — a looser,
-whole-lap approximation rather than a check at the real detection point. This is a
-genuine, now-measured limitation of the proxy, not an assumption.
+## Product and deployment
 
-**Threshold tuning** (see `tune_drs_threshold.py`): the original 1000ms threshold was a
-guess (the "1 second DRS rule" F1 is commonly described by), never empirically checked.
-With real ground truth now available, a range of thresholds was tested directly:
+- The dashboard replays historical laps; it is not connected to live timing, weather, or team telemetry.
+- Home uses a static 2023 season/calendar and standings snapshot; Results is a static 2023 Belgian GP table. Strategy, Compare, and Race Hub use the API for their race data.
+- SHAP explanations are served by the API but are not displayed in the UI.
+- Data and model pickle files are gitignored. API startup requires these artifacts and Ergast lookup CSVs. Render deployment needs a reachable `DATA_URL` bundle and correct CORS/frontend URL settings.
+- A free hosting tier may sleep and take time to wake; the frontend retries selected server/network failures.
 
-| Threshold | Agreement | Recall | False positive rate |
-|---|---|---|---|
-| 500ms | 70.3% | 15.9% | 10.7% |
-| 750ms | 74.9% | 38.5% | 12.5% |
-| 1000ms (original) | 78.1% | 54.1% | 13.5% |
-| **1250ms (adopted)** | **78.1%** | **62.0%** | 16.3% |
-| 1500ms | 76.8% | 67.4% | 19.9% |
-| 2000ms | 71.7% | 72.4% | 28.6% |
-| 2500ms | 67.0% | 74.7% | 35.7% |
-
-**Decision**: switched to **1250ms** (`build_features.py`, `DRS_GAP_THRESHOLD_MS`). Same
-overall agreement as 1000ms (78.1%), but meaningfully better recall (62.0% vs 54.1%) for
-a modest false-positive increase (16.3% vs 13.5%) — a better trade-off for a strategy
-tool, where under-flagging a real opportunity (missed recall) is arguably more costly
-than an occasional over-flag. The same threshold was also applied to the race-craft
-attack/defend logic in `recommend_action.py` for consistency, since it was explicitly
-defined to match `drs_zone_proxy`'s definition.
-
-**Caveat, stated plainly**: this was tuned against only 2,161 rows from 2 races. It's a
-reasonable, data-backed estimate, not a guaranteed season-wide optimum — there isn't
-enough real ground truth to rule out some overfitting to these 2 specific circuits'
-layouts. Worth revisiting if more real DRS telemetry is ever fetched for additional races.
-
-## 3. OpenF1 telemetry coverage is sparse relative to the full dataset
-
-~7.3% of rows (23,431 out of 320,274) have real OpenF1 enrichment (updated after
-fixing a `session_key` merge bug that had originally limited this to ~0.4% —
-see `04_data_cleaning.md`), because OpenF1 only covers the 2023 season, and only
-sessions that successfully matched during the race-ID bridging step. The
-win-probability model is trained on the full Ergast dataset (which doesn't depend on
-OpenF1), while the strategy engine's real-telemetry validation is necessarily scoped
-to this smaller, richer subset.
-
-## 4. Lap-level timing data is unreliable before 2011
-
-Ergast's `lap_times.csv` has sparse/inconsistent coverage for older seasons. This
-project filters to `year >= 2011` during feature engineering for this reason — earlier
-seasons are excluded from lap-level modeling (though still present in aggregate
-results data if needed for other analysis).
-
-## 5. Team-name and naming convention differences between sources
-
-Ergast and OpenF1 use different naming conventions for the same real-world entity (e.g.
-"Alpine" vs "Alpine F1 Team"). This was checked and confirmed to be a labeling
-difference, not a data error (see `04_data_cleaning.md`, section 4).
-
-## 6. One 2023 race (Emilia Romagna GP / Imola) has no OpenF1-Ergast match
-
-This is correct, not a bug — the race was cancelled due to flooding and does not appear
-in the 2023 Ergast results at all.
-
----
-
-**Note on scope**: an earlier version of this document had an item 7 here
-("homepage hero hardcoded to Belgian GP"). That was a plain frontend bug —
-fixable code, not a structural constraint of the data or approach — and
-didn't actually belong in a "known limitations" document, which is meant
-for things that can't simply be fixed (proxy accuracy, data coverage gaps,
-etc.). It's since been fixed; see `07_project_status.md` for the record of
-that change. Keeping this note rather than silently deleting the history,
-in the same spirit as the rest of this document.
+See [model results](09_model_results.md), [strategy engine](10_strategy_engine.md), and [dashboard](11_dashboard.md) for implementation details.
