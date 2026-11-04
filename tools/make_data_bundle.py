@@ -19,6 +19,7 @@ FILES = [
     "models/win_probability_model_raw.pkl",
     "models/feature_columns.pkl",
 ]
+OPTIONAL_FILES = ["models/pit_next_lap_model.pkl"]
 
 
 def main() -> int:
@@ -27,6 +28,7 @@ def main() -> int:
     parser.add_argument("--out", default="racecraft-data.tar.gz")
     args = parser.parse_args()
 
+    files = FILES + [f for f in OPTIONAL_FILES if os.path.exists(os.path.join(args.root, f))]
     missing = [f for f in FILES if not os.path.exists(os.path.join(args.root, f))]
     if missing:
         print("Missing files:")
@@ -36,7 +38,7 @@ def main() -> int:
         return 1
 
     with tarfile.open(args.out, "w:gz") as tar:
-        for f in FILES:
+        for f in files:
             tar.add(os.path.join(args.root, f), arcname=f)
 
     size_mb = os.path.getsize(args.out) / 1024 / 1024

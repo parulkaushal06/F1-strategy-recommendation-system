@@ -409,7 +409,7 @@ function StrategyDashboardInner() {
             <div className="eyebrow mb-3">PIT STOP</div>
             <div className="text-[15px] font-semibold mb-2">{data?.current.pitRecommendation.split(" (")[0] ?? "—"}</div>
             <div className="text-[12px] text-[color:var(--ink-secondary)]">
-              {data ? `Tire age ratio ${(data.current.tireAgeRatio * 100).toFixed(0)}% · ${data.current.lapsOnCurrentTires} laps on current tires.` : ""}
+              {data ? `${data.current.pitNextLapProbability == null ? "Heuristic urgency" : `Estimated next-lap pit chance ${data.current.pitNextLapProbability.toFixed(1)}%`} · tire age ${(data.current.tireAgeRatio * 100).toFixed(0)}% · ${data.current.lapsOnCurrentTires} laps on current tires.` : ""}
             </div>
           </div>
           <div className="card p-5" style={{ borderLeft: `3px solid ${data ? statusColor("drs", data.current.drsRecommendation) : "var(--hairline)"}` }}>

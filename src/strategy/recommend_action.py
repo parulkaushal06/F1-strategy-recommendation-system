@@ -65,12 +65,15 @@ Usage:
 """
 
 import joblib
+import logging
 import pandas as pd
 import numpy as np
 import os
 
 MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "win_probability_model_calibrated.pkl")
 FEATURES_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "feature_columns.pkl")
+PIT_MODEL_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "models", "pit_next_lap_model.pkl")
+logger = logging.getLogger(__name__)
 
 # Derived from pre-pit tire_age_ratio rows through 2020 only (q10/q90/q95),
 # then evaluated out of sample on 2021-2024 in tools/evaluate_pit_oos.py.
@@ -105,9 +108,20 @@ class StrategyEngine:
                  degradation_ms_per_lap=70,
                  pit_window_ratio_low=PIT_WINDOW_RATIO_LOW,
                  pit_window_ratio_high=PIT_WINDOW_RATIO_HIGH,
-                 pit_window_ratio_critical=PIT_WINDOW_RATIO_CRITICAL):
+                 pit_window_ratio_critical=PIT_WINDOW_RATIO_CRITICAL,
+                 pit_model_path=None):
         self.model = joblib.load(model_path)
         self.feature_cols = joblib.load(features_path)
+        self.pit_alert = None
+        # Only attach the production pit artifact when using the production win
+        # model. Synthetic/custom model users retain the deterministic heuristic.
+        if pit_model_path is None and os.path.abspath(model_path) == os.path.abspath(MODEL_PATH):
+            pit_model_path = PIT_MODEL_PATH
+        if pit_model_path and os.path.exists(pit_model_path):
+            try:
+                self.pit_alert = joblib.load(pit_model_path)
+            except Exception:
+                logger.exception("Optional pit alert model could not be loaded; using the tire-age heuristic.")
         self.avg_pit_loss_ms = avg_pit_loss_ms
         self.fresh_tire_pace_gain_ms = fresh_tire_pace_gain_ms
         self.degradation_ms_per_lap = degradation_ms_per_lap
@@ -404,7 +418,21 @@ class StrategyEngine:
             self.pit_window_ratio_critical,
         )
 
-    def _build_recommendation(self, row, current_win_prob, sim_win_prob):
+    def _predict_pit_probability(self, rows):
+        """Predict next-lap pit probability; None when the optional model is absent."""
+        if self.pit_alert is None:
+            return None
+        if isinstance(rows, pd.Series):
+            rows = pd.DataFrame([rows])
+        features = self.pit_alert["features"]
+        X = rows.reindex(columns=features).apply(pd.to_numeric, errors="coerce").fillna(-999)
+        raw_scores = self.pit_alert["model"].predict_proba(X)[:, 1]
+        probabilities = np.asarray(self.pit_alert["calibrator"].predict(raw_scores), dtype=float)
+        if "pit_stop_this_lap" in rows.columns:
+            probabilities[rows["pit_stop_this_lap"].to_numpy() == 1] = np.nan
+        return probabilities
+
+    def _build_recommendation(self, row, current_win_prob, sim_win_prob, pit_next_lap_probability=None):
         """
         Shared decision logic, given ALREADY-COMPUTED probabilities. Used by both
         recommend() (single row, 2 model calls) and recommend_batch() (many rows,
@@ -431,7 +459,9 @@ class StrategyEngine:
 
         if already_pitting_this_lap:
             pit_recommendation = "N/A (this row already shows a pit stop happening this lap)"
-        elif urgency >= 70:
+        elif pit_next_lap_probability is not None and pit_next_lap_probability >= self.pit_alert["threshold"]:
+            pit_recommendation = "PIT NOW (historical next-lap pit alert)"
+        elif self.pit_alert is None and urgency >= 70:
             pit_recommendation = "PIT NOW (tires well past typical window)"
         elif urgency >= 40:
             pit_recommendation = "CONSIDER PIT (tires in typical pit window)"
@@ -454,6 +484,10 @@ class StrategyEngine:
             "current_win_probability": round(float(current_win_prob) * 100, 2),
             "pit_recommendation": pit_recommendation,
             "pit_urgency_score": urgency,
+            "pit_next_lap_probability": (
+                round(float(pit_next_lap_probability), 4)
+                if pit_next_lap_probability is not None else None
+            ),
             "tire_age_ratio": round(tire_age_ratio, 3),
             "laps_on_current_tires": int(laps_on_tire),
             "ers_recommendation": ers_recommendation,
@@ -483,7 +517,12 @@ class StrategyEngine:
         sim_df = pd.DataFrame([sim_row])
         sim_win_prob = self._predict_proba(sim_df)
 
-        return self._build_recommendation(row, current_win_prob, sim_win_prob)
+        pit_probability = self._predict_pit_probability(current_df)
+        pit_probability = (
+            float(pit_probability[0])
+            if pit_probability is not None and np.isfinite(pit_probability[0]) else None
+        )
+        return self._build_recommendation(row, current_win_prob, sim_win_prob, pit_probability)
 
     @staticmethod
     def compute_gap_to_behind_ms(same_lap_field_df, driver_id, position_col="position",
@@ -591,6 +630,7 @@ class StrategyEngine:
 
         current_X = field_df[self.feature_cols].fillna(-999)
         current_probs = self.model.predict_proba(current_X)[:, 1]
+        pit_probabilities = self._predict_pit_probability(field_df)
 
         # Building each simulated row is cheap (pure pandas/dict work, no model
         # call) — only the actual model inference needs batching, not this part.
@@ -600,7 +640,11 @@ class StrategyEngine:
 
         results = []
         for i, (_, row) in enumerate(field_df.iterrows()):
-            result = self._build_recommendation(row, current_probs[i], sim_probs[i])
+            pit_probability = (
+                float(pit_probabilities[i])
+                if pit_probabilities is not None and np.isfinite(pit_probabilities[i]) else None
+            )
+            result = self._build_recommendation(row, current_probs[i], sim_probs[i], pit_probability)
             result = self._add_race_craft(result, row, same_lap_field_df)
             results.append(result)
         return results

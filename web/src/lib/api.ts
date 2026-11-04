@@ -22,6 +22,7 @@ export interface LapBounds {
 export interface StrategySnapshot {
   winProbability: number;
   pitUrgencyScore: number;
+  pitNextLapProbability: number | null;
   tireAgeRatio: number;
   lapsOnCurrentTires: number;
   pitRecommendation: string;
@@ -57,6 +58,7 @@ export interface StrategyResponse {
     team: string;
     winProbability: number;
     pitRecommendation: string;
+    pitNextLapProbability: number | null;
     drsAvailable: boolean;
     raceCraftRecommendation: string;
   }[];

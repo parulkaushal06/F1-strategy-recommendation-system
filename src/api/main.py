@@ -319,6 +319,10 @@ def _row_to_strategy(row, field_df):
     return {
         "winProbability": result["current_win_probability"],
         "pitUrgencyScore": result["pit_urgency_score"],
+        "pitNextLapProbability": (
+            round(float(result["pit_next_lap_probability"]) * 100, 1)
+            if result.get("pit_next_lap_probability") is not None else None
+        ),
         "tireAgeRatio": result["tire_age_ratio"],
         "lapsOnCurrentTires": result["laps_on_current_tires"],
         "pitRecommendation": result["pit_recommendation"],
@@ -438,6 +442,10 @@ def strategy(raceId: int = RaceIdParam(), driverId: int = DriverIdParam(), lap: 
             "team": row_dict["constructor_name"],
             "winProbability": round(float(normalized_by_driver.loc[row_dict["driverId"]]) * 100, 2),
             "pitRecommendation": r["pit_recommendation"].split(" (")[0],
+            "pitNextLapProbability": (
+                round(float(r["pit_next_lap_probability"]) * 100, 1)
+                if r.get("pit_next_lap_probability") is not None else None
+            ),
             "drsAvailable": "AVAILABLE" in r["drs_recommendation"],
             "raceCraftRecommendation": r["race_craft_recommendation"].split(" (")[0],
         })
